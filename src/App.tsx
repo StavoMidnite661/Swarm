@@ -23,6 +23,7 @@ export default function App() {
   const [wind, setWind] = useState(1.0);
   const [density, setDensity] = useState(0.8);
   const [pulseFreq, setPulseFreq] = useState(5.0);
+  const [resonance, setResonance] = useState(0.0);
   const [colorMode, setColorMode] = useState('cyan');
   const [isPaused, setIsPaused] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -173,6 +174,7 @@ export default function App() {
       uniform float u_wind;
       uniform float u_density;
       uniform float u_pulseFreq;
+      uniform float u_resonance;
       uniform sampler2D u_prevFrame;
 
       #define MAX_STEPS 100
@@ -265,6 +267,12 @@ export default function App() {
         // Randomize Sentinel positions and rotations
         float h = hash(id);
         vec3 offset = vec3(hash(id + 1.0), hash(id + 2.0), hash(id + 3.0)) * 2.0 - 1.0;
+        
+        // Quantum Resonance Fracture
+        vec3 fracQ = q;
+        fracQ = abs(fracQ) - (u_resonance * 0.5 * (sin(t * 5.0 + h * 10.0) * 0.5 + 0.5));
+        q = mix(q, fracQ, u_resonance);
+        
         q += offset * 0.5;
         
         q.xy *= rot(t * (h * 2.0 + 1.0));
@@ -452,10 +460,27 @@ export default function App() {
 
         color = pow(color, vec3(0.4545));
         
-        // Accumulate previous frame for motion blur / trails
+        // --- QUANTUM RESONANCE TEMPORAL ECHOES ---
         vec2 screenUV = gl_FragCoord.xy / u_resolution.xy;
-        vec3 prev = texture2D(u_prevFrame, screenUV).rgb;
-        color = max(color, prev * 0.85); // 0.85 decay factor
+        vec2 feedbackUV = screenUV - 0.5;
+        // The feedback spirals inward and twists
+        feedbackUV *= (1.0 - 0.015 * u_resonance);
+        feedbackUV *= rot(0.02 * u_resonance * sin(u_time * 0.5));
+        feedbackUV += 0.5;
+        
+        // Chromatic aberration based on resonance
+        float aberration = 0.008 * u_resonance;
+        float prevR = texture2D(u_prevFrame, feedbackUV + vec2(aberration, 0.0)).r;
+        float prevG = texture2D(u_prevFrame, feedbackUV).g;
+        float prevB = texture2D(u_prevFrame, feedbackUV - vec2(aberration, 0.0)).b;
+        
+        vec3 prev = vec3(prevR, prevG, prevB);
+        float decay = mix(0.85, 0.98, u_resonance); // Higher resonance = longer infinite trails
+        color = max(color, prev * decay);
+        
+        // Core temporal flash
+        float centerDist = length(screenUV - 0.5);
+        color += u_color * u_resonance * 0.15 * exp(-centerDist * 5.0) * (sin(u_time * 15.0) * 0.5 + 0.5);
 
         gl_FragColor = vec4(color, 1.0);
       }
@@ -509,6 +534,7 @@ export default function App() {
     const windLoc = gl.getUniformLocation(program, 'u_wind');
     const densityLoc = gl.getUniformLocation(program, 'u_density');
     const pulseFreqLoc = gl.getUniformLocation(program, 'u_pulseFreq');
+    const resonanceLoc = gl.getUniformLocation(program, 'u_resonance');
     const colorLoc = gl.getUniformLocation(program, 'u_color');
     const prevFrameLoc = gl.getUniformLocation(program, 'u_prevFrame');
 
@@ -610,6 +636,7 @@ export default function App() {
       gl.uniform1f(windLoc, getVal('_shaderWind', 1.0));
       gl.uniform1f(densityLoc, getVal('_shaderDensity', 0.8));
       gl.uniform1f(pulseFreqLoc, getVal('_shaderPulseFreq', 5.0));
+      gl.uniform1f(resonanceLoc, getVal('_shaderResonance', 0.0));
       const c = (window as any)._shaderColor || [0.0, 0.8, 1.0];
       gl.uniform3f(colorLoc, c[0], c[1], c[2]);
 
@@ -772,8 +799,9 @@ export default function App() {
     (window as any)._shaderWind = wind;
     (window as any)._shaderDensity = density;
     (window as any)._shaderPulseFreq = pulseFreq;
+    (window as any)._shaderResonance = resonance;
     (window as any)._shaderColor = (colors as any)[colorMode];
-  }, [speed, lighting, zoom, yaw, pitch, isPaused, proximity, wind, density, pulseFreq, colorMode]);
+  }, [speed, lighting, zoom, yaw, pitch, isPaused, proximity, wind, density, pulseFreq, resonance, colorMode]);
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
@@ -1029,6 +1057,22 @@ export default function App() {
                     onChange={(e) => setPulseFreq(parseFloat(e.target.value))}
                     className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
                   />
+                </div>
+
+                {/* Quantum Resonance (The Anomaly) */}
+                <div className="space-y-2 pt-4 border-t border-white/10">
+                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
+                    <span className="text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.8)] font-bold">Quantum Resonance</span>
+                    <span className="text-cyan-300 drop-shadow-[0_0_5px_rgba(34,211,238,0.8)] font-bold">{(resonance * 100).toFixed(0)}%</span>
+                  </div>
+                  <input 
+                    type="range" min="0" max="1" step="0.01" value={resonance}
+                    onChange={(e) => setResonance(parseFloat(e.target.value))}
+                    className="w-full h-1 bg-cyan-900/50 rounded-full appearance-none cursor-pointer accent-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]"
+                  />
+                  <p className="text-[10px] text-cyan-400/60 leading-tight">
+                    Warning: Increasing resonance will fracture local space-time and induce temporal echoes.
+                  </p>
                 </div>
 
                 {/* Yaw Control */}
