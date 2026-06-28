@@ -95,10 +95,12 @@ The Sentinel isn't just an empty voice; it has a persistent cognitive state. The
 ├── vite.config.ts        # Vite configuration mapping and building pipelines
 ├── memory.json           # Local storage representing the Sentinel's long-term memory
 └── src/
-    ├── App.tsx           # Monolithic control deck, dashboard, visualizer overlays, and user interface
+    ├── App.tsx           # Primary application container, WebGL canvas, core animations, and shader lifecycle
     ├── main.tsx          # React application bootstrapping
     ├── index.css         # Tailwind directives and customized global styles
     ├── types.ts          # Declarations of types, models, interfaces, and enums
+    ├── components/
+    │   └── CommandCenter.tsx # Modular control center UI containing the command terminal, micro-sliders, system alerts, and long-term memory panel
     └── lib/
         └── audioUtils.ts # High-performance browser utilities for PCM conversion and playback buffers
 ```

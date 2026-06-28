@@ -1,6 +1,6 @@
 {
-  "name": "Sentinel Swarm Interface",
-  "description": "A futuristic energetic smoky WebGL environment with electrical charges and a swarm of sentinel entities.",
+  "name": "SOVR ORBIT",
+  "description": "The digital headquarters of an organization where autonomous AI executives collaborate to operate an entire company.",
   "requestFramePermissions": [
     "microphone"
   ],

@@ -11,7 +11,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { pcmToBase64, playAudioChunk, resetAudioPlayback } from './lib/audioUtils';
-import { Trash2, Edit2, Save, X } from 'lucide-react';
+import { 
+  Trash2, Edit2, Save, X, AlertTriangle, CheckCircle, Sparkles, 
+  Play, Pause, Activity, Database, Plus, RefreshCw, Power, 
+  Terminal, ShieldAlert, Volume2, Compass, Layers, Info, Eye, EyeOff,
+  Briefcase, Users, Cpu, Coins, TrendingUp, ShieldCheck, Scale, 
+  MessageSquare, Clock, ArrowUpRight, CheckSquare, FileText, Bell, 
+  ChevronRight, History, UserCheck, MapPin, TrendingDown
+} from 'lucide-react';
+import CommandCenter from './components/CommandCenter';
 
 interface ChatMessage {
   id: string;
@@ -19,9 +27,50 @@ interface ChatMessage {
   text: string;
 }
 
+interface Mission {
+  id: string;
+  name: string;
+  status: 'active' | 'completed' | 'pending';
+  progress: number;
+  department: string;
+  owner: string;
+  milestones: string[];
+  tasks: { name: string; done: boolean }[];
+}
+
+interface ApprovalItem {
+  id: string;
+  title: string;
+  category: string;
+  riskScore: number;
+  description: string;
+  status: 'pending' | 'approved' | 'declined';
+}
+
+interface OperationalLog {
+  id: string;
+  timestamp: string;
+  type: 'info' | 'success' | 'warning' | 'audit';
+  message: string;
+  details?: string;
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  
+  // Interactive UI Room and Time states
+  const [activeRoom, setActiveRoom] = useState<'hq' | 'operations' | 'engineering' | 'finance' | 'marketing' | 'research' | 'legal' | 'situation'>('hq');
+  const [timeQuarter, setTimeQuarter] = useState<'2025-q4' | '2026-q1' | '2026-q2' | '2026-q3' | '2026-q4'>('2026-q3');
+
+  // Situation Room live debate simulation
+  const [debateScenario, setDebateScenario] = useState('Acquire our primary Web3 routing layer competitor Titan Corp');
+  const [isDebating, setIsDebating] = useState(false);
+  const [debateLogs, setDebateLogs] = useState<{ sender: string; role: string; text: string; time: string; avatar: string }[]>([]);
+  const [debateStep, setDebateStep] = useState(0);
+  const [debateResult, setDebateResult] = useState<{ risk: number; readiness: number; impact: number; summary: string } | null>(null);
+
+  // Core WebGL state parameters
   const [speed, setSpeed] = useState(0.2);
   const [lighting, setLighting] = useState(1.0);
   const [zoom, setZoom] = useState(1.69);
@@ -39,6 +88,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'controls' | 'chat' | 'memory' | 'minimap'>('chat');
   const [isAgentDormant, setIsAgentDormant] = useState(false);
   
+  // Real-time Chat Comms
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
 
@@ -48,6 +98,65 @@ export default function App() {
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
   const [editingMemoryValue, setEditingMemoryValue] = useState('');
   
+  // Operational Timeline Event Stream
+  const [logs, setLogs] = useState<OperationalLog[]>([
+    { id: '1', timestamp: '17:24:10', type: 'info', message: 'EIOS Sovereign Orbit initialized successfully.' },
+    { id: '2', timestamp: '17:24:11', type: 'success', message: 'Primary core WebGL gravitational shader bound on GPU port 3000.' },
+    { id: '3', timestamp: '17:24:12', type: 'audit', message: 'Founder signature Stavogm authenticated. Access levels: EXECUTIVE_ADMIN.' }
+  ]);
+
+  // High-hazard Compliance approvals gate
+  const [approvals, setApprovals] = useState<ApprovalItem[]>([
+    { id: 'a1', title: 'Liquidate Sovereign Reserve Pool', category: 'FINANCIAL', riskScore: 89, description: 'Convert $2.4M USD stablecoin reserves into Ethereum yielding nodes on Arbitrum network.', status: 'pending' },
+    { id: 'a2', title: 'Merge Core Routing Smart Contracts', category: 'ENGINEERING', riskScore: 65, description: 'Deploy version v2.10 of the decentralized routing gateway, completely bypassing legacy DNS controls.', status: 'pending' },
+    { id: 'a3', title: 'Terminate Secondary APAC Marketing Campaign', category: 'MARKETING', riskScore: 22, description: 'Directly archive APAC autonomous advertising nodes to preserve $40k/monthly treasury.', status: 'pending' }
+  ]);
+
+  // Company Missions state
+  const [missions, setMissions] = useState<Mission[]>([
+    {
+      id: 'm1',
+      name: 'Launch Sovereign Cloud Cluster Node',
+      status: 'active',
+      progress: 68,
+      department: 'Engineering',
+      owner: 'CTO Spark',
+      milestones: ['Setup Kubernetes Clusters', 'Install Redis Caching', 'Secure TLS Handshakes'],
+      tasks: [
+        { name: 'Deploy 8 bare-metal containers on Swiss cloud network', done: true },
+        { name: 'Implement strict TLS client certificates', done: true },
+        { name: 'Auto-replicate Redis cluster state across Frankfurt', done: false }
+      ]
+    },
+    {
+      id: 'm2',
+      name: 'Refactor Autonomous Treasury Strategy',
+      status: 'active',
+      progress: 40,
+      department: 'Finance',
+      owner: 'CFO Ledger',
+      milestones: ['Audit gas consumption rates', 'Deploy yield compounding scripts', 'Formulate tax mitigation reserves'],
+      tasks: [
+        { name: 'Audit gas consumption on main contracts', done: true },
+        { name: 'Deploy smart compounders to Uniswap pools', done: false },
+        { name: 'Allocate 10% to sovereign cash reserve', done: false }
+      ]
+    },
+    {
+      id: 'm3',
+      name: 'Deploy Decentralized Customer Experience Framework',
+      status: 'completed',
+      progress: 100,
+      department: 'Operations',
+      owner: 'COO Flow',
+      milestones: ['Train CS LLM with company blueprints', 'Deploy chat interface widget'],
+      tasks: [
+        { name: 'Pre-train customer-success LLM with EIOS guidelines', done: true },
+        { name: 'Deploy real-time live support chat widget', done: true }
+      ]
+    }
+  ]);
+
   const pendingMsgRef = useRef<string | null>(null);
   const [isAgentConnecting, setIsAgentConnecting] = useState(false);
   const [isAgentConnected, setIsAgentConnected] = useState(false);
@@ -111,6 +220,22 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const seedFounderBlueprints = async () => {
+    const defaultFacts = [
+      "Stavogm is Chief Executive Officer (CEO). Style: ultra-minimal, high-leverage decisions.",
+      "Primary Mission: Redefine full-stack architectures and eliminate organizational noise.",
+      "Preference: Prefers high-contrast, low-cognitive-load spatial user interfaces."
+    ];
+    for (const fact of defaultFacts) {
+      await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add', fact })
+      });
+    }
+    fetchMemories();
   };
 
   useEffect(() => {
@@ -1067,7 +1192,7 @@ export default function App() {
   }, [speed, lighting, zoom, yaw, pitch, isPaused, proximity, wind, density, pulseFreq, resonance, singularity, colorMode]);
 
   return (
-    <div className="fixed inset-0 bg-black overflow-hidden">
+    <div className="fixed inset-0 bg-black overflow-hidden font-sans">
       <canvas ref={canvasRef} className="w-full h-full block" />
       
       {/* Entry Lobby Overlay */}
@@ -1076,49 +1201,64 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 1.1 }}
-            className="absolute inset-0 z-[100] flex items-center justify-center md:p-6 bg-black/60 backdrop-blur-sm"
+            exit={{ opacity: 0, scale: 1.05 }}
+            className="absolute inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
           >
             <motion.div 
-              initial={{ opacity: 0, y: 20, scale: 0.9 }}
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              className="w-full h-full md:h-auto md:max-w-2xl bg-white/5 backdrop-blur-2xl md:border md:border-white/10 md:rounded-[32px] p-8 md:p-12 md:shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-y-auto md:overflow-hidden relative flex flex-col justify-center"
+              className="w-full max-w-2xl bg-zinc-950/85 backdrop-blur-2xl border border-white/10 rounded-[24px] p-8 md:p-12 shadow-[0_0_80px_rgba(0,0,0,0.8)] overflow-y-auto max-h-[90vh] relative flex flex-col justify-center"
             >
               {/* Decorative background glow */}
               <div className="absolute -top-24 -left-24 w-64 h-64 bg-cyan-500/10 rounded-full blur-[100px]" />
-              <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px]" />
+              <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-fuchsia-500/10 rounded-full blur-[100px]" />
 
               <div className="relative space-y-8">
-                <div className="space-y-4">
-                  <h2 className="text-white font-mono text-2xl md:text-3xl tracking-[0.3em] uppercase">
-                    Sentinel Swarm
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 font-mono text-[9px] uppercase tracking-widest rounded border border-cyan-500/20">
+                      Co-Founder OS
+                    </span>
+                    <span className="text-zinc-600 font-mono text-[10px]">v1.4.0</span>
+                  </div>
+                  <h2 className="text-white font-mono text-2xl md:text-3xl tracking-[0.2em] uppercase font-bold">
+                    Executive Command Deck
                   </h2>
-                  <div className="h-px w-24 bg-gradient-to-r from-cyan-500 to-transparent" />
+                  <div className="h-0.5 w-32 bg-gradient-to-r from-cyan-400 to-transparent" />
                 </div>
 
-                <div className="space-y-6 text-white/60 font-mono text-xs md:text-sm leading-relaxed tracking-wide">
+                <div className="space-y-4 text-zinc-300 font-mono text-xs md:text-sm leading-relaxed tracking-wide">
                   <p>
-                    You are about to witness a futuristic hive-mind in action. 
-                    This experience is powered by a <span className="text-cyan-400">Real-time Volumetric Shader</span>—rendering an energetic, smoky environment alive with electrical charges and a swarm of sentinel entities revolving slowly.
+                    Welcome, Leader. This is an AI-Native workspace engineered specifically to reduce cognitive load and eliminate noise for founders operating complex organizations.
                   </p>
                   <p>
-                    Unlike a video, this universe is being generated live by your hardware. It is a living, breathing digital dimension that you can manipulate and explore.
+                    Every element of this spatial interface is configured to answer four core operational questions immediately:
+                  </p>
+                  <ul className="space-y-1.5 pl-4 border-l border-zinc-800 text-cyan-400/90 text-xs">
+                    <li>1. <strong className="text-white">What is happening?</strong> (Immediate State & Telemetry)</li>
+                    <li>2. <strong className="text-white">Why is it happening?</strong> (Causal Explanations & Micro-Controls)</li>
+                    <li>3. <strong className="text-white">What needs my attention?</strong> (Real-time Risks & Mitigation Hub)</li>
+                    <li>4. <strong className="text-white">What is delegated autonomously?</strong> (Persistent Fact Index & Memory)</li>
+                  </ul>
+                  <p className="text-zinc-400 text-[11px] leading-relaxed">
+                    Powered by a WebGL Volumetric Space-Time shader rendering gravity lensing equations on the GPU, synchronized with a real-time bidirectional audio stream to the Sentinel AI entity.
                   </p>
                 </div>
 
-                {/* Landscape Previews */}
-                <div className="grid grid-cols-3 gap-4">
+                {/* Previews */}
+                <div className="grid grid-cols-3 gap-3 pt-2">
                   {landscapes.slice(0, 3).map((l) => (
-                    <div key={l.id} className="space-y-2 group">
-                      <div className="aspect-[4/3] rounded-xl overflow-hidden border border-white/10 bg-white/5">
+                    <div key={l.id} className="space-y-1.5 group cursor-pointer" onClick={() => { startAudio(); applyLandscape(l); }}>
+                      <div className="aspect-[4/3] rounded-lg overflow-hidden border border-white/10 bg-white/5 relative">
                         <img 
                           src={l.image} 
                           alt={l.name} 
-                          className="w-full h-full object-cover grayscale opacity-50 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-700"
+                          className="w-full h-full object-cover grayscale opacity-40 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-500"
                           referrerPolicy="no-referrer"
                         />
+                        <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
-                      <p className="text-[8px] uppercase tracking-widest text-white/20 text-center group-hover:text-white/60 transition-colors">
+                      <p className="text-[9px] uppercase tracking-wider text-zinc-500 text-center group-hover:text-cyan-400 transition-colors font-mono">
                         {l.name}
                       </p>
                     </div>
@@ -1128,9 +1268,9 @@ export default function App() {
                 <div className="pt-4">
                   <button 
                     onClick={startAudio}
-                    className="w-full py-4 bg-white text-black font-mono text-xs uppercase tracking-[0.3em] rounded-full hover:bg-cyan-400 transition-all duration-300 shadow-[0_0_30px_rgba(255,255,255,0.1)] hover:shadow-[0_0_40px_rgba(34,211,238,0.3)] active:scale-95"
+                    className="w-full py-4 bg-white text-black font-mono text-xs uppercase tracking-[0.25em] font-bold rounded-xl hover:bg-cyan-400 transition-all duration-300 shadow-[0_0_30px_rgba(255,255,255,0.05)] hover:shadow-[0_0_40px_rgba(34,211,238,0.25)] active:scale-95"
                   >
-                    Initiate Sequence
+                    Initiate Command Sequence
                   </button>
                 </div>
               </div>
@@ -1139,566 +1279,148 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* UI Panel */}
-      <div className={`fixed z-50 ${isCollapsed ? 'top-6 right-6' : 'inset-0 md:top-6 md:right-6 md:inset-auto'} ${isAgentDormant ? 'opacity-30 hover:opacity-100 transition-opacity duration-1000' : 'transition-opacity duration-500'}`}>
-        <AnimatePresence>
-          {audioStarted && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 0.8 }}
-              className="w-full h-full flex flex-col items-end justify-start"
+      {/* Top Navigation Bar */}
+      {audioStarted && (
+        <div className="absolute top-0 inset-x-0 h-16 z-40 bg-zinc-950/60 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-white font-mono text-xs font-bold uppercase tracking-widest">
+                EXECUTIVE CONSOLE
+              </span>
+            </div>
+            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-white/10">
+              <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider">
+                SENTINEL SECURE AUDIO LINK:
+              </span>
+              <span className={`font-mono text-[10px] ${isAgentConnected ? 'text-cyan-400 animate-pulse' : 'text-zinc-500'}`}>
+                {isAgentConnecting ? 'ESTABLISHING...' : isAgentConnected ? 'SECURE_STREAM_ONLINE' : 'LINK_STANDBY'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 font-mono text-[10px] text-zinc-400">
+            <div className="hidden lg:flex items-center gap-4">
+              <div>
+                <span className="text-zinc-600 mr-1">AZIMUTH:</span>
+                <span className="text-zinc-300">{(yaw * (180/Math.PI)).toFixed(1)}°</span>
+              </div>
+              <div>
+                <span className="text-zinc-600 mr-1">ELEVATION:</span>
+                <span className="text-zinc-300">{(pitch * (180/Math.PI)).toFixed(1)}°</span>
+              </div>
+              <div>
+                <span className="text-zinc-600 mr-1">PROXIMITY:</span>
+                <span className="text-zinc-300">{Math.abs(proximity).toFixed(2)}u</span>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-white transition-all text-[9px] uppercase tracking-widest flex items-center gap-2"
             >
               {isCollapsed ? (
-                <motion.button 
-                  key="collapsed"
-                  layoutId="system-panel"
-                  initial={{ opacity: 0, scale: 0.5 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.5 }}
-                  onClick={() => setIsCollapsed(false)}
-                  className="w-10 h-10 bg-black/40 backdrop-blur-xl border border-white/10 rounded-full flex items-center justify-center hover:bg-white/10 transition-all shadow-2xl group"
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/40 group-hover:bg-white/80 transition-colors" />
-                </motion.button>
+                <>
+                  <Eye className="w-3 h-3 text-cyan-400" />
+                  <span>Restore Command Deck</span>
+                </>
               ) : (
-                <motion.div 
-                  key="expanded"
-                  layoutId="system-panel"
-                  transition={{ 
-                    type: 'spring', 
-                    damping: 25, 
-                    stiffness: 200
-                  }}
-                  className="w-full h-full md:w-[280px] md:h-auto bg-black/40 backdrop-blur-xl md:border md:border-white/10 md:rounded-2xl overflow-hidden shadow-2xl flex flex-col"
-                >
-                    {/* Header / Toggle */}
-                    <div className="border-b border-white/10">
-                      <button 
-                        onClick={() => setIsCollapsed(true)}
-                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-1.5 h-1.5 rounded-full bg-white/40 group-hover:bg-white/80 transition-colors" />
-                          <h2 className="text-white/80 font-mono text-[10px] uppercase tracking-widest">System Interface</h2>
-                        </div>
-                        <span className="text-white/20 font-mono text-[10px]">
-                          [ - ]
-                        </span>
-                      </button>
-
-                      <div className="flex px-4 pt-4 gap-4 flex-wrap">
-                        <button 
-                          onClick={() => setActiveTab('chat')}
-                          className={`text-[9px] font-mono uppercase tracking-widest pb-3 -mb-[1px] border-b transition-all ${activeTab === 'chat' ? 'text-white border-white' : 'text-white/30 border-transparent hover:text-white/60'}`}
-                        >
-                          Data Link
-                        </button>
-                        <button 
-                          onClick={() => setActiveTab('memory')}
-                          className={`text-[9px] font-mono uppercase tracking-widest pb-3 -mb-[1px] border-b transition-all ${activeTab === 'memory' ? 'text-white border-white' : 'text-white/30 border-transparent hover:text-white/60'}`}
-                        >
-                          Memory
-                        </button>
-                        <button 
-                          onClick={() => setActiveTab('controls')}
-                          className={`text-[9px] font-mono uppercase tracking-widest pb-3 -mb-[1px] border-b transition-all ${activeTab === 'controls' ? 'text-white border-white' : 'text-white/30 border-transparent hover:text-white/60'}`}
-                        >
-                          Controls
-                        </button>
-                        <button 
-                          onClick={() => setActiveTab('minimap')}
-                          className={`text-[9px] font-mono uppercase tracking-widest pb-3 -mb-[1px] border-b transition-all ${activeTab === 'minimap' ? 'text-white border-white' : 'text-white/30 border-transparent hover:text-white/60'}`}
-                        >
-                          Minimap
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="px-6 pb-6 space-y-6 flex-1 md:max-h-[600px] overflow-y-auto">
-                      <AnimatePresence mode="wait">
-                        <motion.div
-                          key={activeTab}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          {activeTab === 'controls' && (
-              <div className="space-y-4 pt-4">
-                {/* Voice Agent Toggle */}
-                <div className="flex flex-col gap-3 pb-4 border-b border-white/10">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-mono uppercase tracking-tighter text-cyan-400 font-bold drop-shadow-[0_0_5px_rgba(34,211,238,0.8)]">Cosmic Sentinel</span>
-                        {isAgentDormant && <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.8)]" />}
-                      </div>
-                      <span className="text-[8px] font-mono text-white/40">Voice Interface</span>
-                    </div>
-                    <button 
-                      onClick={isAgentConnected ? disconnectAgent : connectAgent}
-                      disabled={isAgentConnecting || isAgentDormant}
-                      className={`px-4 py-2 rounded-full font-mono text-[9px] uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(34,211,238,0.2)] ${
-                        isAgentDormant ? 'opacity-30 cursor-not-allowed ' : ''
-                      }${
-                        isAgentConnecting ? 'bg-cyan-900/50 text-cyan-500 border border-cyan-800 animate-pulse' :
-                        isAgentConnected ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.4)]' : 
-                        'bg-white/5 text-white/60 border border-white/20 hover:bg-white/10'
-                      }`}
-                    >
-                      {isAgentConnecting ? 'Connecting...' : isAgentConnected ? 'Connected (Tap to Disconnect)' : 'Initialize Link'}
-                    </button>
-                  </div>
-                  
-                  <button
-                    onClick={() => setIsAgentDormant(!isAgentDormant)}
-                    className={`w-full py-2 rounded font-mono text-[9px] uppercase tracking-widest border transition-all ${
-                      isAgentDormant ? 'bg-red-500/20 text-red-400 border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.2)] animate-pulse' : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white/60'
-                    }`}
-                  >
-                    {isAgentDormant ? 'Wake Sentinel' : 'Stand Down / Sleep Mode'}
-                  </button>
-                </div>
-
-                {/* Pause Toggle */}
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-mono uppercase tracking-tighter text-white/40">Auto-Rotation</span>
-                  <button 
-                    onClick={() => setIsPaused(!isPaused)}
-                    className={`px-3 py-1 rounded-full font-mono text-[9px] uppercase tracking-widest transition-all ${isPaused ? 'bg-white/5 text-white/40 border border-white/10' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'}`}
-                  >
-                    {isPaused ? 'Paused' : 'Active'}
-                  </button>
-                </div>
-
-                {/* Speed Control */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Temporal Speed</span>
-                    <span className="text-white/80">{speed.toFixed(2)}x</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="2" step="0.01" value={speed}
-                    onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Lighting Control */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Luminance</span>
-                    <span className="text-white/80">{lighting.toFixed(2)}x</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="2" step="0.01" value={lighting}
-                    onChange={(e) => setLighting(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Zoom Control */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Focal Zoom</span>
-                    <span className="text-white/80">{zoom.toFixed(2)}</span>
-                  </div>
-                  <input 
-                    type="range" min="1.2" max="3" step="0.01" value={zoom}
-                    onChange={(e) => setZoom(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Proximity Control */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Proximity</span>
-                    <span className="text-white/80">{proximity.toFixed(2)}</span>
-                  </div>
-                  <input 
-                    type="range" min="-2.5" max="0.5" step="0.01" value={proximity}
-                    onChange={(e) => setProximity(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Wind Control */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Wind Intensity</span>
-                    <span className="text-white/80">{wind.toFixed(2)}x</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="5" step="0.01" value={wind}
-                    onChange={(e) => setWind(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Swarm Density */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Swarm Density</span>
-                    <span className="text-white/80">{(density * 100).toFixed(0)}%</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="1" step="0.01" value={density}
-                    onChange={(e) => setDensity(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Pulse Frequency */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Pulse Frequency</span>
-                    <span className="text-white/80">{pulseFreq.toFixed(1)} Hz</span>
-                  </div>
-                  <input 
-                    type="range" min="0.5" max="20" step="0.1" value={pulseFreq}
-                    onChange={(e) => setPulseFreq(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Quantum Resonance (The Anomaly) */}
-                <div className="space-y-2 pt-4 border-t border-white/10">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.8)] font-bold">Quantum Resonance</span>
-                    <span className="text-cyan-300 drop-shadow-[0_0_5px_rgba(34,211,238,0.8)] font-bold">{(resonance * 100).toFixed(0)}%</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="1" step="0.01" value={resonance}
-                    onChange={(e) => setResonance(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-cyan-900/50 rounded-full appearance-none cursor-pointer accent-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]"
-                  />
-                  <p className="text-[10px] text-cyan-400/60 leading-tight">
-                    Warning: Increasing resonance will fracture local space-time and induce temporal echoes.
-                  </p>
-                </div>
-
-                {/* Void Singularity */}
-                <div className="space-y-2 pt-4 border-t border-white/10">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-fuchsia-500 drop-shadow-[0_0_5px_rgba(217,70,239,0.8)] font-bold">Void Singularity</span>
-                    <span className="text-fuchsia-400 drop-shadow-[0_0_5px_rgba(217,70,239,0.8)] font-bold">{(singularity * 100).toFixed(0)}%</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="1" step="0.01" value={singularity}
-                    onChange={(e) => setSingularity(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-fuchsia-900/50 rounded-full appearance-none cursor-pointer accent-fuchsia-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]"
-                  />
-                  <p className="text-[10px] text-fuchsia-400/60 leading-tight">
-                    Collapse the core into an absolute void. Induces gravitational lensing and accretion disk ignition.
-                  </p>
-                </div>
-
-                {/* Yaw Control */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Horizontal Axis</span>
-                    <span className="text-white/80">{(yaw * (180/Math.PI)).toFixed(0)}°</span>
-                  </div>
-                  <input 
-                    type="range" min={-Math.PI} max={Math.PI} step="0.01" value={yaw}
-                    onChange={(e) => setYaw(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Pitch Control */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Vertical Axis</span>
-                    <span className="text-white/80">{(pitch * (180/Math.PI)).toFixed(0)}°</span>
-                  </div>
-                  <input 
-                    type="range" min={-Math.PI/2} max={Math.PI/2} step="0.01" value={pitch}
-                    onChange={(e) => setPitch(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-white/60"
-                  />
-                </div>
-
-                {/* Color Mode Control */}
-                <div className="space-y-2">
-                  <span className="text-[9px] font-mono uppercase tracking-tighter text-white/40">Atmospheric Hue</span>
-                  <div className="grid grid-cols-4 gap-2">
-                    {Object.keys(colors).map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={() => setColorMode(mode)}
-                        className={`h-6 rounded-md border transition-all ${
-                          colorMode === mode 
-                            ? 'border-white/40 ring-1 ring-white/20' 
-                            : 'border-white/5 hover:border-white/20'
-                        }`}
-                        style={{ 
-                          backgroundColor: `rgb(${(colors as any)[mode][0]*255}, ${(colors as any)[mode][1]*255}, ${(colors as any)[mode][2]*255}, 0.3)` 
-                        }}
-                        title={mode}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'chat' && (
-              <div className="pt-4 h-full max-h-[400px] flex flex-col gap-4">
-                <div className="flex-1 border border-white/10 rounded-xl bg-white/5 overflow-hidden flex flex-col relative">
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {messages.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center space-y-3 opacity-50">
-                        <svg className="w-8 h-8 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
-                        <div className="text-[10px] font-mono text-white tracking-widest uppercase">
-                          Drag & Drop Files Here
-                        </div>
-                        <div className="text-[8px] font-mono text-white/60 tracking-wider">
-                          Supports Images, PDF, Markdown, TXT
-                        </div>
-                      </div>
-                    ) : (
-                      messages.map((msg, i) => (
-                        <div key={i} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                          <div className="text-[8px] font-mono text-white/30 uppercase tracking-widest mb-1">{msg.sender === 'user' ? 'Traveler' : 'Sentinel'}</div>
-                          <div className={`px-3 py-2 rounded-xl text-[10px] font-mono whitespace-pre-wrap max-w-[90%] ${msg.sender === 'user' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-white/5 text-white/80 border border-white/10'}`}>
-                            {msg.text}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  {messages.length === 0 && <input type="file" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" title="Upload files to Sentinel" />}
-                </div>
-                <div className="relative">
-                   <input 
-                     type="text" 
-                     placeholder="TRANSMIT MESSAGE TO SENTINEL..." 
-                     value={chatInput}
-                     onChange={(e) => setChatInput(e.target.value)}
-                     onKeyDown={(e) => {
-                       if (e.key === 'Enter') {
-                         handleSendMessage();
-                       }
-                     }}
-                     className="w-full bg-white/5 border border-white/10 rounded-full pl-4 pr-16 py-3 text-[10px] font-mono text-white placeholder-white/30 focus:outline-none focus:border-cyan-500/50 transition-colors" 
-                   />
-                   <button 
-                     disabled={!chatInput.trim()}
-                     onClick={handleSendMessage}
-                     className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 hover:text-cyan-300 disabled:opacity-30 disabled:cursor-not-allowed rounded-full font-mono text-[9px] uppercase tracking-widest transition-all">
-                      Send
-                   </button>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'memory' && (
-              <div className="pt-4 h-full max-h-[400px] flex flex-col gap-4">
-                <div className="flex-1 border border-white/10 rounded-xl bg-white/5 overflow-hidden flex flex-col relative min-h-[220px]">
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    <div className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest border-b border-white/5 pb-2 flex justify-between items-center">
-                      <span>Durable Memories</span>
-                      <span className="text-[8px] text-white/40">{memories.length} entries</span>
-                    </div>
-
-                    {memories.length === 0 ? (
-                      <div className="h-[120px] flex flex-col items-center justify-center text-center space-y-2 opacity-50">
-                        <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest">
-                          No facts indexed
-                        </span>
-                        <p className="text-[8px] font-mono text-white/30 max-w-[180px]">
-                          Tell Sentinel things about yourself in voice or chat to automatically write long-term memories.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {memories.map((m) => (
-                          <div key={m.id} className="group flex flex-col gap-1.5 p-2 rounded bg-white/5 border border-white/10 hover:border-cyan-500/25 transition-all">
-                            {editingMemoryId === m.id ? (
-                              <div className="flex gap-2 items-center">
-                                <input
-                                  type="text"
-                                  value={editingMemoryValue}
-                                  onChange={(e) => setEditingMemoryValue(e.target.value)}
-                                  className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1 text-[9px] font-mono text-white focus:outline-none focus:border-cyan-500/50"
-                                />
-                                <button
-                                  onClick={() => updateMemory(m.id, editingMemoryValue)}
-                                  className="p-1 text-white/60 hover:text-green-400 transition-colors"
-                                  title="Save Fact"
-                                >
-                                  <Save size={10} />
-                                </button>
-                                <button
-                                  onClick={() => setEditingMemoryId(null)}
-                                  className="p-1 text-white/60 hover:text-red-400 transition-colors"
-                                  title="Cancel"
-                                >
-                                  <X size={10} />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex justify-between items-start gap-2">
-                                <span className="text-[9px] font-mono text-white/80 leading-relaxed break-words flex-1">
-                                  {m.fact}
-                                </span>
-                                <div className="flex gap-1.5 opacity-40 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    onClick={() => {
-                                      setEditingMemoryId(m.id);
-                                      setEditingMemoryValue(m.fact);
-                                    }}
-                                    className="p-0.5 hover:text-cyan-400 transition-colors"
-                                    title="Edit memory"
-                                  >
-                                    <Edit2 size={10} />
-                                  </button>
-                                  <button
-                                    onClick={() => deleteMemory(m.id)}
-                                    className="p-0.5 hover:text-red-400 transition-colors"
-                                    title="Delete memory"
-                                  >
-                                    <Trash2 size={10} />
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Manually input a new memory */}
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    placeholder="MANUALLY INDEX FACT..." 
-                    value={manualMemoryInput}
-                    onChange={(e) => setManualMemoryInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && manualMemoryInput.trim()) {
-                        addMemory(manualMemoryInput);
-                      }
-                    }}
-                    className="w-full bg-white/5 border border-white/10 rounded-full pl-4 pr-16 py-3 text-[10px] font-mono text-white placeholder-white/30 focus:outline-none focus:border-cyan-500/50 transition-colors" 
-                  />
-                  <button 
-                    disabled={!manualMemoryInput.trim()}
-                    onClick={() => addMemory(manualMemoryInput)}
-                    className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 hover:text-cyan-300 disabled:opacity-30 disabled:cursor-not-allowed rounded-full font-mono text-[9px] uppercase tracking-widest transition-all"
-                  >
-                    Index
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'minimap' && (
-              <div className="pt-4 space-y-6">
-                <div className="relative aspect-square w-full bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center overflow-hidden">
-                  {/* Grid Background */}
-                  <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-                  
-                  {/* The Sphere Visualization */}
-                  <div className="relative w-40 h-40">
-                    {/* Core Sphere */}
-                    <div className="absolute inset-0 rounded-full border border-white/20 bg-white/5 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]" />
-                    
-                    {/* Orbital Rings */}
-                    <div className="absolute inset-0 rounded-full border border-white/10 scale-75 rotate-45" />
-                    <div className="absolute inset-0 rounded-full border border-white/10 scale-75 -rotate-45" />
-                    
-                    {/* User Position Dot */}
-                    {(() => {
-                      const r = 80; // Radius of the visualization sphere
-                      
-                      // Initial position (0, 0, -1)
-                      let x = 0;
-                      let y = 0;
-                      let z = -1;
-                      
-                      // Pitch rotation (YZ plane)
-                      const cosP = Math.cos(pitch);
-                      const sinP = Math.sin(pitch);
-                      const py = y * cosP - z * sinP;
-                      const pz = y * sinP + z * cosP;
-                      y = py;
-                      z = pz;
-                      
-                      // Yaw rotation (XZ plane)
-                      const cosY = Math.cos(yaw);
-                      const sinY = Math.sin(yaw);
-                      const yx = x * cosY - z * sinY;
-                      const yz = x * sinY + z * cosY;
-                      x = yx;
-                      z = yz;
-                      
-                      // Project to 2D (simple orthographic for the minimap look)
-                      const screenX = 80 + x * r;
-                      const screenY = 80 + y * r;
-                      const opacity = z > 0 ? 1 : 0.3; // Dim if behind the sphere
-                      const scale = 1 + z * 0.5; // Scale based on depth
-                      
-                      return (
-                        <div 
-                          className="absolute w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_15px_rgba(34,211,238,0.8)] transition-all duration-100"
-                          style={{ 
-                            left: `${screenX}px`, 
-                            top: `${screenY}px`,
-                            transform: `translate(-50%, -50%) scale(${scale})`,
-                            opacity: opacity,
-                            zIndex: z > 0 ? 10 : 0
-                          }}
-                        />
-                      );
-                    })()}
-
-                    {/* Center Point */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-white/60 rounded-full blur-[1px]" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
-                    <span className="text-white/40">Vector Coordinates</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-white/5 p-2 rounded-lg border border-white/5">
-                      <span className="text-[8px] text-white/20 block mb-1">AZIMUTH</span>
-                      <span className="text-[10px] text-white/80 font-mono">{(yaw * (180/Math.PI)).toFixed(1)}°</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-lg border border-white/5">
-                      <span className="text-[8px] text-white/20 block mb-1">ELEVATION</span>
-                      <span className="text-[10px] text-white/80 font-mono">{(pitch * (180/Math.PI)).toFixed(1)}°</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-lg border border-white/5">
-                      <span className="text-[8px] text-white/20 block mb-1">PROXIMITY</span>
-                      <span className="text-[10px] text-white/80 font-mono">{Math.abs(proximity).toFixed(2)}u</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-lg border border-white/5">
-                      <span className="text-[8px] text-white/20 block mb-1">MAGNIFICATION</span>
-                      <span className="text-[10px] text-white/80 font-mono">{zoom.toFixed(2)}x</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-                </motion.div>
+                <>
+                  <EyeOff className="w-3 h-3 text-zinc-400" />
+                  <span>Collapse Deck (Full View)</span>
+                </>
               )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Command Deck Grid */}
+      <AnimatePresence>
+        {audioStarted && !isCollapsed && (
+          <CommandCenter
+            speed={speed}
+            setSpeed={setSpeed}
+            zoom={zoom}
+            setZoom={setZoom}
+            singularity={singularity}
+            setSingularity={setSingularity}
+            resonance={resonance}
+            setResonance={setResonance}
+            density={density}
+            setDensity={setDensity}
+            proximity={proximity}
+            setProximity={setProximity}
+            wind={wind}
+            setWind={setWind}
+            colorMode={colorMode}
+            setColorMode={setColorMode}
+            pulseFreq={pulseFreq}
+            setPulseFreq={setPulseFreq}
+            
+            activeRoom={activeRoom}
+            setActiveRoom={setActiveRoom}
+            timeQuarter={timeQuarter}
+            setTimeQuarter={setTimeQuarter}
+
+            messages={messages}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            handleSendMessage={handleSendMessage}
+            isAgentConnected={isAgentConnected}
+            isAgentConnecting={isAgentConnecting}
+            connectAgent={connectAgent}
+            disconnectAgent={disconnectAgent}
+            isAgentDormant={isAgentDormant}
+            setIsAgentDormant={setIsAgentDormant}
+
+            memories={memories}
+            manualMemoryInput={manualMemoryInput}
+            setManualMemoryInput={setManualMemoryInput}
+            addMemory={addMemory}
+            deleteMemory={deleteMemory}
+            updateMemory={updateMemory}
+            editingMemoryId={editingMemoryId}
+            setEditingMemoryId={setEditingMemoryId}
+            editingMemoryValue={editingMemoryValue}
+            setEditingMemoryValue={setEditingMemoryValue}
+            
+            yaw={yaw}
+            pitch={pitch}
+
+            logs={logs}
+            setLogs={setLogs}
+            approvals={approvals}
+            setApprovals={setApprovals}
+            missions={missions}
+            setMissions={setMissions}
+          />
+        )}
+      </AnimatePresence>
+
+
+
+      {/* Floater when system panel collapsed */}
+      {audioStarted && isCollapsed && (
+        <div className="absolute bottom-6 right-6 z-40">
+          <motion.button 
+            layoutId="system-panel-trigger"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={() => setIsCollapsed(false)}
+            className="px-5 py-3 bg-zinc-950/90 hover:bg-zinc-900 border border-white/15 rounded-xl font-mono text-[10px] text-cyan-400 uppercase tracking-widest flex items-center gap-2.5 shadow-2xl transition-all"
+          >
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-400"></span>
+            </span>
+            <span>Restore Command Deck</span>
+          </motion.button>
+        </div>
+      )}
     </div>
   );
 }
