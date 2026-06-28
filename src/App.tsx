@@ -158,6 +158,7 @@ export default function App() {
   ]);
 
   const pendingMsgRef = useRef<string | null>(null);
+  const wasConnectedBeforeSleepRef = useRef(false);
   const [isAgentConnecting, setIsAgentConnecting] = useState(false);
   const [isAgentConnected, setIsAgentConnected] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
@@ -244,10 +245,18 @@ export default function App() {
 
   useEffect(() => {
     (window as any)._isDormant = isAgentDormant;
-    if (isAgentDormant && isAgentConnected && ws) {
-       ws.close();
+    if (isAgentDormant) {
+      if (isAgentConnected && ws) {
+        wasConnectedBeforeSleepRef.current = true;
+        ws.close();
+      }
+    } else {
+      if (wasConnectedBeforeSleepRef.current && !isAgentConnected && !isAgentConnecting) {
+        wasConnectedBeforeSleepRef.current = false;
+        connectAgent();
+      }
     }
-  }, [isAgentDormant, isAgentConnected, ws]);
+  }, [isAgentDormant, isAgentConnected, isAgentConnecting, ws]);
 
   const colors = {
     cyan: [0.0, 0.8, 1.0],
@@ -447,6 +456,7 @@ export default function App() {
   }
 
   const disconnectAgent = () => {
+    wasConnectedBeforeSleepRef.current = false;
     if (ws) {
       ws.close();
     }
