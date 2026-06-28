@@ -10,6 +10,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { pcmToBase64, playAudioChunk, resetAudioPlayback } from './lib/audioUtils';
+import { Trash2, Edit2, Save, X } from 'lucide-react';
+
+interface ChatMessage {
+  id: string;
+  sender: 'user' | 'agent';
+  text: string;
+}
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -24,10 +32,97 @@ export default function App() {
   const [density, setDensity] = useState(0.8);
   const [pulseFreq, setPulseFreq] = useState(5.0);
   const [resonance, setResonance] = useState(0.0);
+  const [singularity, setSingularity] = useState(0.0);
   const [colorMode, setColorMode] = useState('cyan');
   const [isPaused, setIsPaused] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState<'controls' | 'landscape' | 'minimap'>('landscape');
+  const [activeTab, setActiveTab] = useState<'controls' | 'chat' | 'memory' | 'minimap'>('chat');
+  const [isAgentDormant, setIsAgentDormant] = useState(false);
+  
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+
+  // Long-Term Memory State
+  const [memories, setMemories] = useState<{ id: string; fact: string }[]>([]);
+  const [manualMemoryInput, setManualMemoryInput] = useState('');
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
+  const [editingMemoryValue, setEditingMemoryValue] = useState('');
+  
+  const pendingMsgRef = useRef<string | null>(null);
+  const [isAgentConnecting, setIsAgentConnecting] = useState(false);
+  const [isAgentConnected, setIsAgentConnected] = useState(false);
+  const [ws, setWs] = useState<WebSocket | null>(null);
+
+  const fetchMemories = async () => {
+    try {
+      const res = await fetch("/api/memory");
+      if (res.ok) {
+        const data = await res.json();
+        setMemories(data);
+      }
+    } catch (err) {
+      console.error("Failed to load memories", err);
+    }
+  };
+
+  const addMemory = async (factText: string) => {
+    if (!factText.trim()) return;
+    try {
+      const res = await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add', fact: factText })
+      });
+      if (res.ok) {
+        setManualMemoryInput('');
+        fetchMemories();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const deleteMemory = async (id: string) => {
+    try {
+      const res = await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id })
+      });
+      if (res.ok) {
+        fetchMemories();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const updateMemory = async (id: string, newFact: string) => {
+    try {
+      const res = await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', id, fact: newFact })
+      });
+      if (res.ok) {
+        setEditingMemoryId(null);
+        fetchMemories();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchMemories();
+  }, []);
+
+  useEffect(() => {
+    (window as any)._isDormant = isAgentDormant;
+    if (isAgentDormant && isAgentConnected && ws) {
+       ws.close();
+    }
+  }, [isAgentDormant, isAgentConnected, ws]);
 
   const colors = {
     cyan: [0.0, 0.8, 1.0],
@@ -116,6 +211,136 @@ export default function App() {
     setAudioStarted(true);
   };
 
+  const connectAgent = async () => {
+    setIsAgentConnecting(true);
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const newWs = new WebSocket(`${protocol}//${location.host}/live`);
+      const inputAudioCtx = new AudioContext({ sampleRate: 16000 });
+      const outputAudioCtx = new AudioContext({ sampleRate: 24000 });
+      const analyser = outputAudioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      let pollRef: number;
+      const pollAudio = () => {
+        if (outputAudioCtx.state === 'running') {
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+               sum += dataArray[i];
+            }
+            const avg = sum / dataArray.length;
+            (window as any)._agentAudio = avg / 255.0; // Normalize 0 to 1
+        }
+        pollRef = requestAnimationFrame(pollAudio);
+      };
+      pollAudio();
+
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = inputAudioCtx.createMediaStreamSource(stream);
+        const processor = inputAudioCtx.createScriptProcessor(4096, 1, 1);
+        source.connect(processor);
+        processor.connect(inputAudioCtx.destination);
+
+        processor.onaudioprocess = (e) => {
+          if (newWs.readyState === WebSocket.OPEN) {
+            const base64 = pcmToBase64(e.inputBuffer.getChannelData(0));
+            newWs.send(JSON.stringify({ audio: base64 }));
+          }
+        };
+      } catch (micErr) {
+        console.warn("Microphone access not available or denied. Using text-only input mode.", micErr);
+      }
+
+      newWs.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.audio) {
+           playAudioChunk(outputAudioCtx, msg.audio, analyser);
+        }
+        if (msg.text) {
+           setMessages(prev => {
+             const last = prev[prev.length - 1];
+             if (last && last.sender === 'agent') {
+               return [...prev.slice(0, -1), { ...last, text: last.text + msg.text }];
+             }
+             return [...prev, { id: Math.random().toString(), sender: 'agent', text: msg.text }];
+           });
+        }
+        if (msg.memoryUpdated) {
+           fetchMemories();
+           if (msg.newFact) {
+              setMessages(prev => [...prev, {
+                id: Math.random().toString(),
+                sender: 'agent',
+                text: `✨ [System: Recorded to co-founder memory: "${msg.newFact.fact}"]`
+              }]);
+           }
+        }
+        if (msg.interrupted) {
+           resetAudioPlayback();
+           (window as any)._agentAudio = 0;
+        }
+      };
+
+      newWs.onopen = () => {
+        setIsAgentConnected(true);
+        setIsAgentConnecting(false);
+        setWs(newWs);
+        if (pendingMsgRef.current) {
+          newWs.send(JSON.stringify({ text: pendingMsgRef.current }));
+          pendingMsgRef.current = null;
+        }
+      };
+
+      newWs.onerror = (e) => {
+        console.error("Agent WebSocket connection error", e);
+      };
+
+      newWs.onclose = () => {
+        setIsAgentConnected(false);
+        setWs(null);
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        if (inputAudioCtx.state !== 'closed') {
+          inputAudioCtx.close().catch(() => {});
+        }
+        if (outputAudioCtx.state !== 'closed') {
+          outputAudioCtx.close().catch(() => {});
+        }
+        cancelAnimationFrame(pollRef);
+        (window as any)._agentAudio = 0;
+      };
+
+    } catch (err) {
+      console.error("Failed to connect agent", err);
+      setIsAgentConnecting(false);
+    }
+  }
+
+  const disconnectAgent = () => {
+    if (ws) {
+      ws.close();
+    }
+  }
+
+  const handleSendMessage = () => {
+    if (!chatInput.trim()) return;
+    const textToSend = chatInput;
+    setMessages(prev => [...prev, { id: Math.random().toString(), sender: 'user', text: textToSend }]);
+    setChatInput('');
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ text: textToSend }));
+    } else {
+      pendingMsgRef.current = textToSend;
+      connectAgent();
+    }
+  }
+
   // Audio modulation loop
   useEffect(() => {
     if (!audioStarted) return;
@@ -175,6 +400,8 @@ export default function App() {
       uniform float u_density;
       uniform float u_pulseFreq;
       uniform float u_resonance;
+      uniform float u_singularity;
+      uniform float u_agentAudio;
       uniform sampler2D u_prevFrame;
 
       #define MAX_STEPS 100
@@ -230,6 +457,13 @@ export default function App() {
         vec3 pos = p;
         float t = u_time * u_speed;
         
+        // --- VOID SINGULARITY SPATIAL WARP ---
+        float distToCenter = length(pos);
+        if (u_singularity > 0.0) {
+            float fallIn = exp(-distToCenter * 0.15) * u_singularity * 2.5;
+            pos *= (1.0 + fallIn);
+        }
+        
         // --- RINGS ---
         float ringDist = 1e10;
         
@@ -275,14 +509,16 @@ export default function App() {
         
         q += offset * 0.5;
         
-        q.xy *= rot(t * (h * 2.0 + 1.0));
-        q.xz *= rot(t * (h * 1.5 + 0.5));
+        float audioMod = u_agentAudio * 15.0; // Agent's voice intensity modulates rotation
         
-        float sentinel = sdOctahedron(q, 0.1 + h * 0.15);
+        q.xy *= rot(t * (h * 2.0 + 1.0) + audioMod);
+        q.xz *= rot(t * (h * 1.5 + 0.5) + audioMod);
+        
+        float sentinel = sdOctahedron(q, 0.1 + h * 0.15 + u_agentAudio * 1.5);
         
         // Bound the swarm to a torus-like region
-        float distToCenter = length(p);
-        float bounds = max(distToCenter - 13.0, 5.0 - distToCenter);
+        float swarmDist = length(p);
+        float bounds = max(swarmDist - 13.0, 5.0 - swarmDist);
         sentinel = max(sentinel, bounds);
         
         // --- CORE ---
@@ -328,8 +564,12 @@ export default function App() {
         // Shift camera offset slightly for asymmetric look
         uv += vec2(-0.15, 0.15);
         
+        float screenCenterDist = length(uv);
+        float lensWarp = exp(-screenCenterDist * 3.0) * u_singularity * 1.5;
+        vec2 warpedUV = uv - normalize(uv) * lensWarp;
+        
         vec3 ro = vec3(0.0, 0.0, u_depth - 24.0);
-        vec3 rd = normalize(vec3(uv, u_zoom));
+        vec3 rd = normalize(vec3(warpedUV, u_zoom));
         
         float pitch = u_rotation.y;
         float yaw = u_rotation.x;
@@ -388,8 +628,13 @@ export default function App() {
         vec3 color = vec3(0.01, 0.0, 0.03);
         
         // Background Stars/Particles
-        float stars = fbm(vec3(uv * 100.0, u_time * 0.05));
-        color += vec3(0.5, 0.8, 1.0) * pow(smoothstep(0.6, 1.0, stars), 5.0) * 0.5;
+        vec2 starUV = uv * 100.0;
+        if (u_singularity > 0.0) {
+            float starWarp = u_singularity * exp(-length(uv) * 4.0) * 15.0;
+            starUV *= rot(starWarp);
+        }
+        float stars = fbm(vec3(starUV, u_time * 0.05));
+        color += vec3(0.5, 0.8, 1.0) * pow(smoothstep(0.6, 1.0, stars), 5.0) * mix(0.5, 2.5, u_singularity);
         
         // Gas Colors
         vec3 gasBase = mix(vec3(0.05, 0.1, 0.2), u_color, 0.6);
@@ -439,16 +684,26 @@ export default function App() {
              
              float corePulse = sin(u_time * u_pulseFreq) * 0.5 + 0.5;
              vec3 baseCoreCol = mix(gasCol3, mix(gasCol1, gasCol2, gasMix), pattern);
-             color += baseCoreCol * (1.0 + gasMix2 * 2.0 + corePulse * 1.5) * u_lighting;
+             vec3 coreFinal = baseCoreCol * (1.0 + gasMix2 * 2.0 + corePulse * 1.5) * u_lighting;
              
              float rim = pow(1.0 - max(dot(n, -rd), 0.0), 1.5);
-             color += gasCol2 * rim * 2.0 * u_lighting;
+             coreFinal += gasCol2 * rim * 2.0 * u_lighting;
+             
+             vec3 bhColor = vec3(0.0);
+             float eventHorizon = pow(1.0 - max(dot(n, -rd), 0.0), 8.0);
+             bhColor += mix(vec3(0.9, 0.95, 1.0), u_color, 0.2) * eventHorizon * 10.0;
+             color += mix(coreFinal, bhColor, u_singularity);
           } else if (mat == 3.0) { // Rings
              vec3 lightDir = normalize(vec3(0.0, 0.0, 0.0) - p);
              float diff = max(dot(n, lightDir), 0.0);
              float rim = pow(1.0 - max(dot(n, -rd), 0.0), 2.0);
-             color += mix(u_color, vec3(1.0), 0.7) * (diff * 0.5 + 0.5) * u_lighting * 2.0;
-             color += sparkColor * rim * u_lighting * 2.0;
+             vec3 ringFinal = mix(u_color, vec3(1.0), 0.7) * (diff * 0.5 + 0.5) * u_lighting * 2.0;
+             ringFinal += sparkColor * rim * u_lighting * 2.0;
+             
+             vec3 accretion = mix(vec3(1.0, 0.8, 0.5), vec3(0.2, 0.6, 1.0), u_color.r);
+             accretion = mix(accretion, sparkColor, 0.5) * (3.0 + sin(u_time * 30.0 + length(p) * 20.0)) * 2.5;
+             
+             color += mix(ringFinal, accretion, u_singularity);
           }
         }
         
@@ -464,8 +719,8 @@ export default function App() {
         vec2 screenUV = gl_FragCoord.xy / u_resolution.xy;
         vec2 feedbackUV = screenUV - 0.5;
         // The feedback spirals inward and twists
-        feedbackUV *= (1.0 - 0.015 * u_resonance);
-        feedbackUV *= rot(0.02 * u_resonance * sin(u_time * 0.5));
+        feedbackUV *= (1.0 - 0.015 * u_resonance - 0.02 * u_singularity);
+        feedbackUV *= rot(0.02 * u_resonance * sin(u_time * 0.5) + u_singularity * 0.03);
         feedbackUV += 0.5;
         
         // Chromatic aberration based on resonance
@@ -535,6 +790,8 @@ export default function App() {
     const densityLoc = gl.getUniformLocation(program, 'u_density');
     const pulseFreqLoc = gl.getUniformLocation(program, 'u_pulseFreq');
     const resonanceLoc = gl.getUniformLocation(program, 'u_resonance');
+    const singularityLoc = gl.getUniformLocation(program, 'u_singularity');
+    const agentAudioLoc = gl.getUniformLocation(program, 'u_agentAudio');
     const colorLoc = gl.getUniformLocation(program, 'u_color');
     const prevFrameLoc = gl.getUniformLocation(program, 'u_prevFrame');
 
@@ -624,19 +881,24 @@ export default function App() {
 
       gl.uniform2f(rotationLoc, (window as any)._shaderYaw || 0, (window as any)._shaderPitch || 0);
       
+      const isDormant = (window as any)._isDormant;
+      const dormantFactor = isDormant ? 0.1 : 1.0;
+      
       const getVal = (key: string, fallback: number) => {
         const val = (window as any)[key];
         return typeof val === 'number' ? val : fallback;
       };
 
-      gl.uniform1f(speedLoc, getVal('_shaderSpeed', 1.0));
-      gl.uniform1f(lightLoc, getVal('_shaderLighting', 1.0));
+      gl.uniform1f(speedLoc, getVal('_shaderSpeed', 1.0) * dormantFactor);
+      gl.uniform1f(lightLoc, getVal('_shaderLighting', 1.0) * (isDormant ? 0.2 : 1.0));
       gl.uniform1f(zoomLoc, getVal('_shaderZoom', 1.2));
       gl.uniform1f(depthLoc, getVal('_shaderDepth', -1.8));
-      gl.uniform1f(windLoc, getVal('_shaderWind', 1.0));
+      gl.uniform1f(windLoc, getVal('_shaderWind', 1.0) * dormantFactor);
       gl.uniform1f(densityLoc, getVal('_shaderDensity', 0.8));
-      gl.uniform1f(pulseFreqLoc, getVal('_shaderPulseFreq', 5.0));
-      gl.uniform1f(resonanceLoc, getVal('_shaderResonance', 0.0));
+      gl.uniform1f(pulseFreqLoc, isDormant ? 0.5 : getVal('_shaderPulseFreq', 5.0));
+      gl.uniform1f(resonanceLoc, getVal('_shaderResonance', 0.0) * dormantFactor);
+      gl.uniform1f(singularityLoc, getVal('_shaderSingularity', 0.0) * dormantFactor);
+      gl.uniform1f(agentAudioLoc, getVal('_agentAudio', 0.0));
       const c = (window as any)._shaderColor || [0.0, 0.8, 1.0];
       gl.uniform3f(colorLoc, c[0], c[1], c[2]);
 
@@ -800,8 +1062,9 @@ export default function App() {
     (window as any)._shaderDensity = density;
     (window as any)._shaderPulseFreq = pulseFreq;
     (window as any)._shaderResonance = resonance;
+    (window as any)._shaderSingularity = singularity;
     (window as any)._shaderColor = (colors as any)[colorMode];
-  }, [speed, lighting, zoom, yaw, pitch, isPaused, proximity, wind, density, pulseFreq, resonance, colorMode]);
+  }, [speed, lighting, zoom, yaw, pitch, isPaused, proximity, wind, density, pulseFreq, resonance, singularity, colorMode]);
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
@@ -877,7 +1140,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* UI Panel */}
-      <div className={`fixed z-50 ${isCollapsed ? 'top-6 right-6' : 'inset-0 md:top-6 md:right-6 md:inset-auto'}`}>
+      <div className={`fixed z-50 ${isCollapsed ? 'top-6 right-6' : 'inset-0 md:top-6 md:right-6 md:inset-auto'} ${isAgentDormant ? 'opacity-30 hover:opacity-100 transition-opacity duration-1000' : 'transition-opacity duration-500'}`}>
         <AnimatePresence>
           {audioStarted && (
             <motion.div
@@ -924,12 +1187,18 @@ export default function App() {
                         </span>
                       </button>
 
-                      <div className="flex px-4 pt-4 gap-6">
+                      <div className="flex px-4 pt-4 gap-4 flex-wrap">
                         <button 
-                          onClick={() => setActiveTab('landscape')}
-                          className={`text-[9px] font-mono uppercase tracking-widest pb-3 -mb-[1px] border-b transition-all ${activeTab === 'landscape' ? 'text-white border-white' : 'text-white/30 border-transparent hover:text-white/60'}`}
+                          onClick={() => setActiveTab('chat')}
+                          className={`text-[9px] font-mono uppercase tracking-widest pb-3 -mb-[1px] border-b transition-all ${activeTab === 'chat' ? 'text-white border-white' : 'text-white/30 border-transparent hover:text-white/60'}`}
                         >
-                          Landscape
+                          Data Link
+                        </button>
+                        <button 
+                          onClick={() => setActiveTab('memory')}
+                          className={`text-[9px] font-mono uppercase tracking-widest pb-3 -mb-[1px] border-b transition-all ${activeTab === 'memory' ? 'text-white border-white' : 'text-white/30 border-transparent hover:text-white/60'}`}
+                        >
+                          Memory
                         </button>
                         <button 
                           onClick={() => setActiveTab('controls')}
@@ -957,6 +1226,41 @@ export default function App() {
                         >
                           {activeTab === 'controls' && (
               <div className="space-y-4 pt-4">
+                {/* Voice Agent Toggle */}
+                <div className="flex flex-col gap-3 pb-4 border-b border-white/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-mono uppercase tracking-tighter text-cyan-400 font-bold drop-shadow-[0_0_5px_rgba(34,211,238,0.8)]">Cosmic Sentinel</span>
+                        {isAgentDormant && <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.8)]" />}
+                      </div>
+                      <span className="text-[8px] font-mono text-white/40">Voice Interface</span>
+                    </div>
+                    <button 
+                      onClick={isAgentConnected ? disconnectAgent : connectAgent}
+                      disabled={isAgentConnecting || isAgentDormant}
+                      className={`px-4 py-2 rounded-full font-mono text-[9px] uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(34,211,238,0.2)] ${
+                        isAgentDormant ? 'opacity-30 cursor-not-allowed ' : ''
+                      }${
+                        isAgentConnecting ? 'bg-cyan-900/50 text-cyan-500 border border-cyan-800 animate-pulse' :
+                        isAgentConnected ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.4)]' : 
+                        'bg-white/5 text-white/60 border border-white/20 hover:bg-white/10'
+                      }`}
+                    >
+                      {isAgentConnecting ? 'Connecting...' : isAgentConnected ? 'Connected (Tap to Disconnect)' : 'Initialize Link'}
+                    </button>
+                  </div>
+                  
+                  <button
+                    onClick={() => setIsAgentDormant(!isAgentDormant)}
+                    className={`w-full py-2 rounded font-mono text-[9px] uppercase tracking-widest border transition-all ${
+                      isAgentDormant ? 'bg-red-500/20 text-red-400 border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.2)] animate-pulse' : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white/60'
+                    }`}
+                  >
+                    {isAgentDormant ? 'Wake Sentinel' : 'Stand Down / Sleep Mode'}
+                  </button>
+                </div>
+
                 {/* Pause Toggle */}
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] font-mono uppercase tracking-tighter text-white/40">Auto-Rotation</span>
@@ -1075,6 +1379,22 @@ export default function App() {
                   </p>
                 </div>
 
+                {/* Void Singularity */}
+                <div className="space-y-2 pt-4 border-t border-white/10">
+                  <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
+                    <span className="text-fuchsia-500 drop-shadow-[0_0_5px_rgba(217,70,239,0.8)] font-bold">Void Singularity</span>
+                    <span className="text-fuchsia-400 drop-shadow-[0_0_5px_rgba(217,70,239,0.8)] font-bold">{(singularity * 100).toFixed(0)}%</span>
+                  </div>
+                  <input 
+                    type="range" min="0" max="1" step="0.01" value={singularity}
+                    onChange={(e) => setSingularity(parseFloat(e.target.value))}
+                    className="w-full h-1 bg-fuchsia-900/50 rounded-full appearance-none cursor-pointer accent-fuchsia-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]"
+                  />
+                  <p className="text-[10px] text-fuchsia-400/60 leading-tight">
+                    Collapse the core into an absolute void. Induces gravitational lensing and accretion disk ignition.
+                  </p>
+                </div>
+
                 {/* Yaw Control */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-[9px] font-mono uppercase tracking-tighter">
@@ -1125,28 +1445,158 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'landscape' && (
-              <div className="grid grid-cols-1 gap-4 pt-4">
-                {landscapes.map((landscape) => (
-                  <button
-                    key={landscape.id}
-                    onClick={() => applyLandscape(landscape)}
-                    className="w-full text-left group"
-                  >
-                    <div className="relative aspect-[16/9] w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 transition-all group-hover:border-white/30 group-hover:scale-[1.02]">
-                      <img 
-                        src={landscape.image} 
-                        alt={landscape.name}
-                        className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            {activeTab === 'chat' && (
+              <div className="pt-4 h-full max-h-[400px] flex flex-col gap-4">
+                <div className="flex-1 border border-white/10 rounded-xl bg-white/5 overflow-hidden flex flex-col relative">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {messages.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-center space-y-3 opacity-50">
+                        <svg className="w-8 h-8 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        <div className="text-[10px] font-mono text-white tracking-widest uppercase">
+                          Drag & Drop Files Here
+                        </div>
+                        <div className="text-[8px] font-mono text-white/60 tracking-wider">
+                          Supports Images, PDF, Markdown, TXT
+                        </div>
+                      </div>
+                    ) : (
+                      messages.map((msg, i) => (
+                        <div key={i} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                          <div className="text-[8px] font-mono text-white/30 uppercase tracking-widest mb-1">{msg.sender === 'user' ? 'Traveler' : 'Sentinel'}</div>
+                          <div className={`px-3 py-2 rounded-xl text-[10px] font-mono whitespace-pre-wrap max-w-[90%] ${msg.sender === 'user' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-white/5 text-white/80 border border-white/10'}`}>
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {messages.length === 0 && <input type="file" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" title="Upload files to Sentinel" />}
+                </div>
+                <div className="relative">
+                   <input 
+                     type="text" 
+                     placeholder="TRANSMIT MESSAGE TO SENTINEL..." 
+                     value={chatInput}
+                     onChange={(e) => setChatInput(e.target.value)}
+                     onKeyDown={(e) => {
+                       if (e.key === 'Enter') {
+                         handleSendMessage();
+                       }
+                     }}
+                     className="w-full bg-white/5 border border-white/10 rounded-full pl-4 pr-16 py-3 text-[10px] font-mono text-white placeholder-white/30 focus:outline-none focus:border-cyan-500/50 transition-colors" 
+                   />
+                   <button 
+                     disabled={!chatInput.trim()}
+                     onClick={handleSendMessage}
+                     className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 hover:text-cyan-300 disabled:opacity-30 disabled:cursor-not-allowed rounded-full font-mono text-[9px] uppercase tracking-widest transition-all">
+                      Send
+                   </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'memory' && (
+              <div className="pt-4 h-full max-h-[400px] flex flex-col gap-4">
+                <div className="flex-1 border border-white/10 rounded-xl bg-white/5 overflow-hidden flex flex-col relative min-h-[220px]">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest border-b border-white/5 pb-2 flex justify-between items-center">
+                      <span>Durable Memories</span>
+                      <span className="text-[8px] text-white/40">{memories.length} entries</span>
                     </div>
-                    <h3 className="text-white/60 font-mono text-[10px] uppercase tracking-widest mt-3 group-hover:text-white transition-colors text-center">
-                      {landscape.name}
-                    </h3>
+
+                    {memories.length === 0 ? (
+                      <div className="h-[120px] flex flex-col items-center justify-center text-center space-y-2 opacity-50">
+                        <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest">
+                          No facts indexed
+                        </span>
+                        <p className="text-[8px] font-mono text-white/30 max-w-[180px]">
+                          Tell Sentinel things about yourself in voice or chat to automatically write long-term memories.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {memories.map((m) => (
+                          <div key={m.id} className="group flex flex-col gap-1.5 p-2 rounded bg-white/5 border border-white/10 hover:border-cyan-500/25 transition-all">
+                            {editingMemoryId === m.id ? (
+                              <div className="flex gap-2 items-center">
+                                <input
+                                  type="text"
+                                  value={editingMemoryValue}
+                                  onChange={(e) => setEditingMemoryValue(e.target.value)}
+                                  className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1 text-[9px] font-mono text-white focus:outline-none focus:border-cyan-500/50"
+                                />
+                                <button
+                                  onClick={() => updateMemory(m.id, editingMemoryValue)}
+                                  className="p-1 text-white/60 hover:text-green-400 transition-colors"
+                                  title="Save Fact"
+                                >
+                                  <Save size={10} />
+                                </button>
+                                <button
+                                  onClick={() => setEditingMemoryId(null)}
+                                  className="p-1 text-white/60 hover:text-red-400 transition-colors"
+                                  title="Cancel"
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex justify-between items-start gap-2">
+                                <span className="text-[9px] font-mono text-white/80 leading-relaxed break-words flex-1">
+                                  {m.fact}
+                                </span>
+                                <div className="flex gap-1.5 opacity-40 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => {
+                                      setEditingMemoryId(m.id);
+                                      setEditingMemoryValue(m.fact);
+                                    }}
+                                    className="p-0.5 hover:text-cyan-400 transition-colors"
+                                    title="Edit memory"
+                                  >
+                                    <Edit2 size={10} />
+                                  </button>
+                                  <button
+                                    onClick={() => deleteMemory(m.id)}
+                                    className="p-0.5 hover:text-red-400 transition-colors"
+                                    title="Delete memory"
+                                  >
+                                    <Trash2 size={10} />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Manually input a new memory */}
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder="MANUALLY INDEX FACT..." 
+                    value={manualMemoryInput}
+                    onChange={(e) => setManualMemoryInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && manualMemoryInput.trim()) {
+                        addMemory(manualMemoryInput);
+                      }
+                    }}
+                    className="w-full bg-white/5 border border-white/10 rounded-full pl-4 pr-16 py-3 text-[10px] font-mono text-white placeholder-white/30 focus:outline-none focus:border-cyan-500/50 transition-colors" 
+                  />
+                  <button 
+                    disabled={!manualMemoryInput.trim()}
+                    onClick={() => addMemory(manualMemoryInput)}
+                    className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 hover:text-cyan-300 disabled:opacity-30 disabled:cursor-not-allowed rounded-full font-mono text-[9px] uppercase tracking-widest transition-all"
+                  >
+                    Index
                   </button>
-                ))}
+                </div>
               </div>
             )}
 
