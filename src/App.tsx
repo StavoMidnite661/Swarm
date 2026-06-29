@@ -20,6 +20,7 @@ import {
   ChevronRight, History, UserCheck, MapPin, TrendingDown
 } from 'lucide-react';
 import CommandCenter from './components/CommandCenter';
+import LandingPage from './components/LandingPage';
 
 interface ChatMessage {
   id: string;
@@ -55,6 +56,15 @@ interface OperationalLog {
   details?: string;
 }
 
+interface ModelConfig {
+  provider: 'gemini-live' | 'gemini-rest' | 'openai-rest' | 'anthropic-rest' | 'ollama-local' | 'custom-rest';
+  modelId: string;
+  endpointUrl: string;
+  apiKey: string;
+  systemInstruction: string;
+  customHeaders: string;
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -88,7 +98,27 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'controls' | 'chat' | 'memory' | 'minimap'>('chat');
   const [isAgentDormant, setIsAgentDormant] = useState(false);
   
-  // Real-time Chat Comms
+  const [modelConfig, setModelConfig] = useState<ModelConfig>(() => {
+    try {
+      const saved = localStorage.getItem('sentinel_model_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error parsing saved model config:', e);
+    }
+    return {
+      provider: 'gemini-live',
+      modelId: 'gemini-3.1-flash-live-preview',
+      endpointUrl: '',
+      apiKey: '',
+      systemInstruction: 'You are my brilliant and highly competent technical co-founder. You\'re sharp, visionary, direct, and slightly intense in a good way. You understand complex systems and are ready to brainstorm, strategize, and build. Your name is Sentinel.',
+      customHeaders: ''
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sentinel_model_config', JSON.stringify(modelConfig));
+  }, [modelConfig]);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
 
@@ -243,18 +273,25 @@ export default function App() {
     fetchMemories();
   }, []);
 
+  const prevDormantRef = useRef(isAgentDormant);
+
   useEffect(() => {
     (window as any)._isDormant = isAgentDormant;
-    if (isAgentDormant) {
-      if (isAgentConnected && ws) {
-        wasConnectedBeforeSleepRef.current = true;
-        ws.close();
+    if (isAgentDormant !== prevDormantRef.current) {
+      if (isAgentDormant) {
+        if (isAgentConnected || isAgentConnecting) {
+          wasConnectedBeforeSleepRef.current = true;
+          if (ws) {
+            ws.close();
+          }
+        }
+      } else {
+        if (wasConnectedBeforeSleepRef.current && !isAgentConnected && !isAgentConnecting) {
+          wasConnectedBeforeSleepRef.current = false;
+          connectAgent();
+        }
       }
-    } else {
-      if (wasConnectedBeforeSleepRef.current && !isAgentConnected && !isAgentConnecting) {
-        wasConnectedBeforeSleepRef.current = false;
-        connectAgent();
-      }
+      prevDormantRef.current = isAgentDormant;
     }
   }, [isAgentDormant, isAgentConnected, isAgentConnecting, ws]);
 
@@ -265,6 +302,49 @@ export default function App() {
     lime: [0.6, 1.0, 0.0]
   };
   const [audioStarted, setAudioStarted] = useState(false);
+
+  useEffect(() => {
+    if (!audioStarted) {
+      // Landing page state
+      (window as any)._shaderOffsetX = -0.05;
+      (window as any)._shaderOffsetY = 0.0;
+      setYaw(33 * (Math.PI / 180));
+      setPitch(-17 * (Math.PI / 180));
+      setIsAgentDormant(false);
+    } else {
+      // Entry animation
+      let start = performance.now();
+      const duration = 2500; // 2.5s for 360 spin
+      const startYaw = 33 * (Math.PI / 180);
+      const targetYaw = startYaw + (Math.PI * 2);
+      const startOffsetX = -0.05;
+      const targetOffsetX = -0.15;
+      const startOffsetY = 0.0;
+      const targetOffsetY = 0.15;
+
+      const animateEntry = (time: number) => {
+        const elapsed = time - start;
+        const progress = Math.min(elapsed / duration, 1.0);
+        // easeInOut cubic
+        const ease = progress < 0.5 
+          ? 4 * progress * progress * progress 
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        
+        setYaw(startYaw + (targetYaw - startYaw) * ease);
+        (window as any)._shaderOffsetX = startOffsetX + (targetOffsetX - startOffsetX) * ease;
+        (window as any)._shaderOffsetY = startOffsetY + (targetOffsetY - startOffsetY) * ease;
+
+        if (progress < 1.0) {
+          requestAnimationFrame(animateEntry);
+        } else {
+          setIsAgentDormant(true);
+        }
+      };
+      
+      requestAnimationFrame(animateEntry);
+    }
+  }, [audioStarted, setYaw, setPitch, setIsAgentDormant]);
+
   const noiseGainRef = useRef<GainNode | null>(null);
   const filterRef = useRef<BiquadFilterNode | null>(null);
   const envFilterRef = useRef<BiquadFilterNode | null>(null);
@@ -346,10 +426,19 @@ export default function App() {
   };
 
   const connectAgent = async () => {
+    setIsAgentDormant(false);
     setIsAgentConnecting(true);
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const newWs = new WebSocket(`${protocol}//${location.host}/live`);
+      const queryParams = new URLSearchParams({
+        provider: modelConfig.provider,
+        modelId: modelConfig.modelId,
+        endpointUrl: modelConfig.endpointUrl || '',
+        apiKey: modelConfig.apiKey || '',
+        customHeaders: modelConfig.customHeaders || ''
+      }).toString();
+
+      const newWs = new WebSocket(`${protocol}//${location.host}/live?${queryParams}`);
       const inputAudioCtx = new AudioContext({ sampleRate: 16000 });
       const outputAudioCtx = new AudioContext({ sampleRate: 24000 });
       const analyser = outputAudioCtx.createAnalyser();
@@ -387,6 +476,11 @@ export default function App() {
         };
       } catch (micErr) {
         console.warn("Microphone access not available or denied. Using text-only input mode.", micErr);
+        setMessages(prev => [...prev, {
+          id: Math.random().toString(),
+          sender: 'agent',
+          text: `⚠️ [System: Microphone access denied or unavailable. Voice input is disabled. You can still use text chat.]`
+        }]);
       }
 
       newWs.onmessage = (event) => {
@@ -431,6 +525,11 @@ export default function App() {
 
       newWs.onerror = (e) => {
         console.error("Agent WebSocket connection error", e);
+        setMessages(prev => [...prev, {
+          id: Math.random().toString(),
+          sender: 'agent',
+          text: `⚠️ [System: Network or connection error occurred with the AI agent. Please check your configuration.]`
+        }]);
       };
 
       newWs.onclose = () => {
@@ -452,6 +551,11 @@ export default function App() {
     } catch (err) {
       console.error("Failed to connect agent", err);
       setIsAgentConnecting(false);
+      setMessages(prev => [...prev, {
+        id: Math.random().toString(),
+        sender: 'agent',
+        text: `⚠️ [System: Connection setup failed. Please try again.]`
+      }]);
     }
   }
 
@@ -538,6 +642,7 @@ export default function App() {
       uniform float u_singularity;
       uniform float u_agentAudio;
       uniform sampler2D u_prevFrame;
+      uniform vec2 u_offset;
 
       #define MAX_STEPS 100
       #define SURF_DIST 0.01
@@ -697,7 +802,7 @@ export default function App() {
         vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
         
         // Shift camera offset slightly for asymmetric look
-        uv += vec2(-0.15, 0.15);
+        uv += u_offset;
         
         float screenCenterDist = length(uv);
         float lensWarp = exp(-screenCenterDist * 3.0) * u_singularity * 1.5;
@@ -929,6 +1034,7 @@ export default function App() {
     const agentAudioLoc = gl.getUniformLocation(program, 'u_agentAudio');
     const colorLoc = gl.getUniformLocation(program, 'u_color');
     const prevFrameLoc = gl.getUniformLocation(program, 'u_prevFrame');
+    const offsetLoc = gl.getUniformLocation(program, 'u_offset');
 
     const prevTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, prevTexture);
@@ -1034,6 +1140,11 @@ export default function App() {
       gl.uniform1f(resonanceLoc, getVal('_shaderResonance', 0.0) * dormantFactor);
       gl.uniform1f(singularityLoc, getVal('_shaderSingularity', 0.0) * dormantFactor);
       gl.uniform1f(agentAudioLoc, getVal('_agentAudio', 0.0));
+      
+      const offsetX = getVal('_shaderOffsetX', -0.15);
+      const offsetY = getVal('_shaderOffsetY', 0.15);
+      gl.uniform2f(offsetLoc, offsetX, offsetY);
+
       const c = (window as any)._shaderColor || [0.0, 0.8, 1.0];
       gl.uniform3f(colorLoc, c[0], c[1], c[2]);
 
@@ -1061,128 +1172,6 @@ export default function App() {
     };
   }, []);
 
-  const applyLandscape = (landscape: any) => {
-    const settings = landscape.settings;
-    if (settings.speed !== undefined) setSpeed(settings.speed);
-    if (settings.lighting !== undefined) setLighting(settings.lighting);
-    if (settings.zoom !== undefined) setZoom(settings.zoom);
-    if (settings.yaw !== undefined) setYaw(settings.yaw);
-    if (settings.pitch !== undefined) setPitch(settings.pitch);
-    if (settings.proximity !== undefined) setProximity(settings.proximity);
-    if (settings.wind !== undefined) setWind(settings.wind);
-    if (settings.density !== undefined) setDensity(settings.density);
-    if (settings.isPaused !== undefined) setIsPaused(settings.isPaused);
-    if (settings.colorMode !== undefined) setColorMode(settings.colorMode);
-    setIsCollapsed(true);
-    
-    // Update Environment Audio
-    if (audioContextRef.current && envFilterRef.current && envGainRef.current && landscape.audio) {
-      const ctx = audioContextRef.current;
-      const audio = landscape.audio;
-      envFilterRef.current.type = audio.type as BiquadFilterType;
-      envFilterRef.current.frequency.setTargetAtTime(audio.freq, ctx.currentTime, 0.5);
-      envFilterRef.current.Q.setTargetAtTime(audio.q, ctx.currentTime, 0.5);
-      envGainRef.current.gain.setTargetAtTime(audio.gain, ctx.currentTime, 0.5);
-    }
-
-    // Trigger audio movement
-    movementRef.current = 1.0;
-  };
-
-  const landscapes = [
-    {
-      id: 'core',
-      name: 'The Core',
-      image: 'https://lh3.googleusercontent.com/pw/AP1GczMdSHG7AfLrUH_b3sLjtG340ZEp3eywkEuo5n7zrFw-TfA0ZwJBk7Ry0z9yWoGSW9leVAtzxqOrrBbxa_VPAh46gowm9Cop5uqMyGl0LR4JnrVHqfO7-ssNRjbpI8uy_hj0md_X8tI8K5C1eF6XJBL5=w2606-h1416-s-no-gm?authuser=0',
-      settings: {
-        speed: 0.5,
-        lighting: 1.2,
-        zoom: 1.5,
-        yaw: 0,
-        pitch: 0,
-        proximity: 0,
-        wind: 1.0,
-        density: 0.8,
-        isPaused: false,
-        colorMode: 'cyan'
-      },
-      audio: {
-        freq: 150,
-        q: 8,
-        type: 'lowpass',
-        gain: 0.2
-      }
-    },
-    {
-      id: 'storm',
-      name: 'Plasma Storm',
-      image: 'https://lh3.googleusercontent.com/pw/AP1GczO4s-8i-WwoohnEi6cV3q_g5g8Y0kqm6XJSBL51Pitm5HCtRk4ywtjVn0HfhCRA3ehY9j1MN7AaElD4Lw7EsXx3r1mPaznRSu5K9LXsGstebQVBKONjxdqPVsBlnjyJO1wsyfSk8p2hF2FvqKBKUjNd=w2192-h1480-s-no-gm?authuser=0',
-      settings: {
-        speed: 1.2,
-        lighting: 1.5,
-        zoom: 1.8,
-        proximity: -2.2,
-        wind: 3.5,
-        density: 0.5,
-        yaw: 19 * (Math.PI / 180),
-        pitch: -14 * (Math.PI / 180),
-        isPaused: false,
-        colorMode: 'purple'
-      },
-      audio: {
-        freq: 400,
-        q: 0.5,
-        type: 'bandpass',
-        gain: 0.25
-      }
-    },
-    {
-      id: 'hive',
-      name: 'Neon Hive',
-      image: 'https://lh3.googleusercontent.com/pw/AP1GczODtYaSgO3R8EPfEfgpsmGlugQJoXtx-AYNAo9mAJHW9Gc9lJ8h6NR3joe7491Qk5rdmdblFTtJLp657-w9V0R2wCBcZ0MEvtLXk23C2puJtXzuMF6mCPcscvOayF1vBSzJZ039_z6xlNyk1cYo1AmX=w2146-h1320-s-no-gm?authuser=0',
-      settings: {
-        speed: 0.30,
-        lighting: 1.0,
-        zoom: 2.2,
-        proximity: -1.85,
-        wind: 0.5,
-        density: 0.9,
-        yaw: -189 * (Math.PI / 180),
-        pitch: -5 * (Math.PI / 180),
-        isPaused: false,
-        colorMode: 'lime'
-      },
-      audio: {
-        freq: 800,
-        q: 15,
-        type: 'bandpass',
-        gain: 0.18
-      }
-    },
-    {
-      id: 'solar',
-      name: 'Solar Anomaly',
-      image: 'https://lh3.googleusercontent.com/pw/AP1GczMBmxjrTBIebX8DF9LfMixa96_mmrTIQHKeWBlHk-EhqL4e1qPnMerboxyhTpD1uT9hYhdKFQ7ujQpoMRwjOmjX6Yqes7K8XR_n_mC3dfq_AoOwx3DIH49PYvgGUEu9oLyuEMqBX1ii_KwhJG58MLrS=w2628-h1658-s-no-gm?authuser=0',
-      settings: {
-        speed: 0.8,
-        lighting: 1.8,
-        zoom: 1.2,
-        yaw: -185 * (Math.PI / 180),
-        pitch: 79 * (Math.PI / 180),
-        proximity: -1.06,
-        wind: 1.5,
-        density: 0.7,
-        isPaused: false,
-        colorMode: 'orange'
-      },
-      audio: {
-        freq: 1200,
-        q: 4,
-        type: 'lowpass',
-        gain: 0.15
-      }
-    }
-  ];
 
   // Sync state to window for the render loop to pick up
   useEffect(() => {
@@ -1205,87 +1194,14 @@ export default function App() {
     <div className="fixed inset-0 bg-black overflow-hidden font-sans">
       <canvas ref={canvasRef} className="w-full h-full block" />
       
-      {/* Entry Lobby Overlay */}
+      {/* Entry Lobby / Immersive Landing Page Overlay */}
       <AnimatePresence>
         {!audioStarted && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 1.05 }}
-            className="absolute inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-          >
-            <motion.div 
-              initial={{ opacity: 0, y: 30, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              className="w-full max-w-2xl bg-zinc-950/85 backdrop-blur-2xl border border-white/10 rounded-[24px] p-8 md:p-12 shadow-[0_0_80px_rgba(0,0,0,0.8)] overflow-y-auto max-h-[90vh] relative flex flex-col justify-center"
-            >
-              {/* Decorative background glow */}
-              <div className="absolute -top-24 -left-24 w-64 h-64 bg-cyan-500/10 rounded-full blur-[100px]" />
-              <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-fuchsia-500/10 rounded-full blur-[100px]" />
-
-              <div className="relative space-y-8">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 font-mono text-[9px] uppercase tracking-widest rounded border border-cyan-500/20">
-                      Co-Founder OS
-                    </span>
-                    <span className="text-zinc-600 font-mono text-[10px]">v1.4.0</span>
-                  </div>
-                  <h2 className="text-white font-mono text-2xl md:text-3xl tracking-[0.2em] uppercase font-bold">
-                    Executive Command Deck
-                  </h2>
-                  <div className="h-0.5 w-32 bg-gradient-to-r from-cyan-400 to-transparent" />
-                </div>
-
-                <div className="space-y-4 text-zinc-300 font-mono text-xs md:text-sm leading-relaxed tracking-wide">
-                  <p>
-                    Welcome, Leader. This is an AI-Native workspace engineered specifically to reduce cognitive load and eliminate noise for founders operating complex organizations.
-                  </p>
-                  <p>
-                    Every element of this spatial interface is configured to answer four core operational questions immediately:
-                  </p>
-                  <ul className="space-y-1.5 pl-4 border-l border-zinc-800 text-cyan-400/90 text-xs">
-                    <li>1. <strong className="text-white">What is happening?</strong> (Immediate State & Telemetry)</li>
-                    <li>2. <strong className="text-white">Why is it happening?</strong> (Causal Explanations & Micro-Controls)</li>
-                    <li>3. <strong className="text-white">What needs my attention?</strong> (Real-time Risks & Mitigation Hub)</li>
-                    <li>4. <strong className="text-white">What is delegated autonomously?</strong> (Persistent Fact Index & Memory)</li>
-                  </ul>
-                  <p className="text-zinc-400 text-[11px] leading-relaxed">
-                    Powered by a WebGL Volumetric Space-Time shader rendering gravity lensing equations on the GPU, synchronized with a real-time bidirectional audio stream to the Sentinel AI entity.
-                  </p>
-                </div>
-
-                {/* Previews */}
-                <div className="grid grid-cols-3 gap-3 pt-2">
-                  {landscapes.slice(0, 3).map((l) => (
-                    <div key={l.id} className="space-y-1.5 group cursor-pointer" onClick={() => { startAudio(); applyLandscape(l); }}>
-                      <div className="aspect-[4/3] rounded-lg overflow-hidden border border-white/10 bg-white/5 relative">
-                        <img 
-                          src={l.image} 
-                          alt={l.name} 
-                          className="w-full h-full object-cover grayscale opacity-40 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-500"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <p className="text-[9px] uppercase tracking-wider text-zinc-500 text-center group-hover:text-cyan-400 transition-colors font-mono">
-                        {l.name}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="pt-4">
-                  <button 
-                    onClick={startAudio}
-                    className="w-full py-4 bg-white text-black font-mono text-xs uppercase tracking-[0.25em] font-bold rounded-xl hover:bg-cyan-400 transition-all duration-300 shadow-[0_0_30px_rgba(255,255,255,0.05)] hover:shadow-[0_0_40px_rgba(34,211,238,0.25)] active:scale-95"
-                  >
-                    Initiate Command Sequence
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <LandingPage
+            onLaunch={startAudio}
+            modelConfig={modelConfig}
+            setModelConfig={setModelConfig}
+          />
         )}
       </AnimatePresence>
 
@@ -1344,6 +1260,20 @@ export default function App() {
                 </>
               )}
             </button>
+
+            <button 
+              onClick={() => {
+                setAudioStarted(false);
+                // Also disconnect agents if connected
+                if (isAgentConnected) {
+                  disconnectAgent();
+                }
+              }}
+              className="px-4 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-red-400 hover:text-red-300 transition-all text-[9px] uppercase tracking-widest flex items-center gap-1.5 rounded-md"
+            >
+              <Power className="w-3 h-3" />
+              <span>DECOUPLE DECK</span>
+            </button>
           </div>
         </div>
       )}
@@ -1386,6 +1316,9 @@ export default function App() {
             disconnectAgent={disconnectAgent}
             isAgentDormant={isAgentDormant}
             setIsAgentDormant={setIsAgentDormant}
+
+            modelConfig={modelConfig}
+            setModelConfig={setModelConfig}
 
             memories={memories}
             manualMemoryInput={manualMemoryInput}

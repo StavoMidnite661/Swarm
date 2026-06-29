@@ -8,7 +8,7 @@ import {
   MessageSquare, Clock, ArrowUpRight, CheckSquare, FileText, Bell, 
   ChevronRight, History, UserCheck, MapPin, TrendingDown
 } from 'lucide-react';
-import { ChatMessage, Mission, ApprovalItem, OperationalLog, ExecutiveAgent } from '../types';
+import { ChatMessage, Mission, ApprovalItem, OperationalLog, ExecutiveAgent, ModelConfig } from '../types';
 
 interface CommandCenterProps {
   speed: number;
@@ -45,6 +45,9 @@ interface CommandCenterProps {
   disconnectAgent: () => void;
   isAgentDormant: boolean;
   setIsAgentDormant: (v: boolean) => void;
+
+  modelConfig: ModelConfig;
+  setModelConfig: React.Dispatch<React.SetStateAction<ModelConfig>>;
 
   memories: { id: string; fact: string }[];
   manualMemoryInput: string;
@@ -85,6 +88,7 @@ export default function CommandCenter({
   messages, chatInput, setChatInput, handleSendMessage,
   isAgentConnected, isAgentConnecting, connectAgent, disconnectAgent,
   isAgentDormant, setIsAgentDormant,
+  modelConfig, setModelConfig,
 
   memories, manualMemoryInput, setManualMemoryInput, addMemory, deleteMemory, updateMemory,
   editingMemoryId, setEditingMemoryId, editingMemoryValue, setEditingMemoryValue,
@@ -96,7 +100,7 @@ export default function CommandCenter({
 }: CommandCenterProps) {
 
   // Right column active sub-tab for information streams
-  const [rightTab, setRightTab] = useState<'comms' | 'timeline' | 'memory' | 'approvals'>('comms');
+  const [rightTab, setRightTab] = useState<'comms' | 'timeline' | 'memory' | 'approvals' | 'config'>('comms');
   
   // Local state for adding custom mission form
   const [showAddMission, setShowAddMission] = useState(false);
@@ -1454,6 +1458,16 @@ export default function CommandCenter({
                   </span>
                 )}
               </button>
+
+              <button
+                onClick={() => setRightTab('config')}
+                className={`px-2 py-1.5 rounded transition-all border flex items-center gap-1 ${
+                  rightTab === 'config' ? 'bg-cyan-500/10 border-cyan-500/25 text-cyan-400 font-bold' : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                <Cpu size={10} />
+                <span>INTEGRATIONS</span>
+              </button>
             </div>
 
             {/* TAB CONTENT: SENTINEL VOIP & CHAT */}
@@ -1746,6 +1760,197 @@ export default function CommandCenter({
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT: MODEL CONFIG & CUSTOM MODEL INTEGRATION */}
+            {rightTab === 'config' && (
+              <div className="flex-1 flex flex-col gap-3 overflow-hidden text-[9px] font-mono">
+                <div className="flex justify-between items-center border-b border-white/5 pb-1 shrink-0">
+                  <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest">
+                    AI AGENT & SERVICE INTEGRATION
+                  </span>
+                  <button 
+                    onClick={() => {
+                      setModelConfig({
+                        provider: 'gemini-live',
+                        modelId: 'gemini-3.1-flash-live-preview',
+                        endpointUrl: '',
+                        apiKey: '',
+                        systemInstruction: 'You are my brilliant and highly competent technical co-founder. You\'re sharp, visionary, direct, and slightly intense in a good way. You understand complex systems and are ready to brainstorm, strategize, and build. Your name is Sentinel.',
+                        customHeaders: ''
+                      });
+                      showToast("Model Configuration Reset to Defaults");
+                    }}
+                    className="text-[7.5px] text-zinc-500 hover:text-cyan-400 uppercase transition-all"
+                  >
+                    Reset Defaults
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 min-h-[180px]">
+                  {/* Provider Choice */}
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-500 uppercase text-[7.5px] font-bold tracking-wider block">API Provider Architecture</label>
+                    <select
+                      value={modelConfig.provider}
+                      onChange={(e) => {
+                        const prov = e.target.value as any;
+                        let defaultModel = "gemini-3.1-flash-live-preview";
+                        let defaultEndpoint = "";
+                        if (prov === "gemini-rest") defaultModel = "gemini-2.5-flash";
+                        else if (prov === "openai-rest") defaultModel = "gpt-4o-mini";
+                        else if (prov === "anthropic-rest") defaultModel = "claude-3-5-sonnet-latest";
+                        else if (prov === "ollama-local") {
+                          defaultModel = "llama3.1";
+                          defaultEndpoint = "http://127.0.0.1:11434";
+                        } else if (prov === "custom-rest") {
+                          defaultModel = "deepseek-chat";
+                          defaultEndpoint = "https://api.deepseek.com/v1";
+                        }
+                        
+                        setModelConfig(prev => ({
+                          ...prev,
+                          provider: prov,
+                          modelId: defaultModel,
+                          endpointUrl: defaultEndpoint
+                        }));
+                      }}
+                      className="bg-zinc-900/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-zinc-100 w-full focus:outline-none focus:border-cyan-500/50 transition-all font-mono"
+                    >
+                      <option value="gemini-live">Google Gemini Live (Audio / Multi-modal)</option>
+                      <option value="gemini-rest">Google Gemini REST (Streaming Text)</option>
+                      <option value="openai-rest">OpenAI / Compatible REST (GPT, DeepSeek, xAI)</option>
+                      <option value="anthropic-rest">Anthropic Claude REST (Claude 3.5)</option>
+                      <option value="ollama-local">Local Ollama LLM (Offline Private / Localhost)</option>
+                      <option value="custom-rest">Custom API Proxy Endpoint (OpenAI Compatible)</option>
+                    </select>
+                  </div>
+
+                  {/* Model ID */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-zinc-500 uppercase text-[7.5px] font-bold tracking-wider block">Model Identifier</label>
+                      <span className="text-[7px] text-cyan-500/75">Active ID</span>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="e.g. gemini-2.5-flash, gpt-4o, llama3"
+                      value={modelConfig.modelId}
+                      onChange={(e) => setModelConfig(prev => ({ ...prev, modelId: e.target.value }))}
+                      className="bg-zinc-900/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-zinc-100 w-full focus:outline-none focus:border-cyan-500/50 transition-all font-mono"
+                    />
+                    
+                    {/* Fast presets */}
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {modelConfig.provider === 'gemini-live' && ['gemini-3.1-flash-live-preview', 'gemini-2.0-flash-exp'].map(m => (
+                        <button key={m} onClick={() => setModelConfig(prev => ({ ...prev, modelId: m }))} className="px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-[7px] text-zinc-400 transition-all">{m}</button>
+                      ))}
+                      {modelConfig.provider === 'gemini-rest' && ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'].map(m => (
+                        <button key={m} onClick={() => setModelConfig(prev => ({ ...prev, modelId: m }))} className="px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-[7px] text-zinc-400 transition-all">{m}</button>
+                      ))}
+                      {modelConfig.provider === 'openai-rest' && ['gpt-4o', 'gpt-4o-mini', 'o1-mini'].map(m => (
+                        <button key={m} onClick={() => setModelConfig(prev => ({ ...prev, modelId: m }))} className="px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-[7px] text-zinc-400 transition-all">{m}</button>
+                      ))}
+                      {modelConfig.provider === 'anthropic-rest' && ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'].map(m => (
+                        <button key={m} onClick={() => setModelConfig(prev => ({ ...prev, modelId: m }))} className="px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-[7px] text-zinc-400 transition-all">{m}</button>
+                      ))}
+                      {modelConfig.provider === 'ollama-local' && ['llama3.1', 'deepseek-r1:8b', 'mistral', 'phi4'].map(m => (
+                        <button key={m} onClick={() => setModelConfig(prev => ({ ...prev, modelId: m }))} className="px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-[7px] text-zinc-400 transition-all">{m}</button>
+                      ))}
+                      {modelConfig.provider === 'custom-rest' && ['deepseek-chat', 'deepseek-reasoner', 'grok-beta'].map(m => (
+                        <button key={m} onClick={() => setModelConfig(prev => ({ ...prev, modelId: m }))} className="px-1.5 py-0.5 bg-white/5 hover:bg-white/10 rounded text-[7px] text-zinc-400 transition-all">{m}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Endpoint URL (if applicable) */}
+                  {['openai-rest', 'custom-rest', 'ollama-local', 'anthropic-rest'].includes(modelConfig.provider) && (
+                    <div className="space-y-1.5">
+                      <label className="text-zinc-500 uppercase text-[7.5px] font-bold tracking-wider block">Endpoint API URL Base</label>
+                      <input
+                        type="text"
+                        placeholder={modelConfig.provider === 'ollama-local' ? "http://127.0.0.1:11434" : "e.g. https://api.openai.com/v1"}
+                        value={modelConfig.endpointUrl}
+                        onChange={(e) => setModelConfig(prev => ({ ...prev, endpointUrl: e.target.value }))}
+                        className="bg-zinc-900/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-zinc-100 w-full focus:outline-none focus:border-cyan-500/50 transition-all font-mono"
+                      />
+                    </div>
+                  )}
+
+                  {/* API Token Key Override */}
+                  {modelConfig.provider !== 'ollama-local' && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-zinc-500 uppercase text-[7.5px] font-bold tracking-wider block">API Access Token / Key</label>
+                        <span className="text-[7px] text-zinc-600 font-bold">Overrides Server Env</span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="password"
+                          id="apiKeyInput"
+                          placeholder={modelConfig.apiKey ? "••••••••••••••••" : "Leave blank to use default server .env key"}
+                          value={modelConfig.apiKey}
+                          onChange={(e) => setModelConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                          className="bg-zinc-900/80 border border-white/10 rounded-lg pl-2.5 pr-8 py-1.5 text-zinc-100 w-full focus:outline-none focus:border-cyan-500/50 transition-all font-mono text-[9px]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const input = document.getElementById('apiKeyInput') as HTMLInputElement;
+                            if (input) input.type = input.type === 'password' ? 'text' : 'password';
+                          }}
+                          className="absolute right-2 top-2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          <Info size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* System Instruction / Character Settings */}
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-500 uppercase text-[7.5px] font-bold tracking-wider block">System Directive (Persona / Prompt)</label>
+                    <textarea
+                      placeholder="System guidelines, character rules, co-founder behavioral traits..."
+                      value={modelConfig.systemInstruction}
+                      onChange={(e) => setModelConfig(prev => ({ ...prev, systemInstruction: e.target.value }))}
+                      className="bg-zinc-900/80 border border-white/10 rounded-lg p-2.5 text-zinc-200 w-full focus:outline-none focus:border-cyan-500/50 transition-all font-mono h-24 leading-relaxed"
+                    />
+                  </div>
+
+                  {/* Custom headers for advanced routing */}
+                  {['custom-rest', 'openai-rest'].includes(modelConfig.provider) && (
+                    <div className="space-y-1.5">
+                      <label className="text-zinc-500 uppercase text-[7.5px] font-bold tracking-wider block">Custom Headers (JSON Object)</label>
+                      <textarea
+                        placeholder='{"HTTP-Referer": "https://localhost:3000", "X-Title": "Sentinel Hub"}'
+                        value={modelConfig.customHeaders}
+                        onChange={(e) => setModelConfig(prev => ({ ...prev, customHeaders: e.target.value }))}
+                        className="bg-zinc-900/80 border border-white/10 rounded-lg p-2.5 text-zinc-200 w-full focus:outline-none focus:border-cyan-500/50 transition-all font-mono h-14 leading-normal text-[8px]"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Apply Button */}
+                <div className="pt-2 shrink-0 border-t border-white/5 flex gap-2">
+                  <button
+                    onClick={() => {
+                      if (isAgentConnected) {
+                        disconnectAgent();
+                        setTimeout(() => connectAgent(), 300);
+                      } else {
+                        connectAgent();
+                      }
+                      showToast(`Switched Connection to ${modelConfig.provider.toUpperCase()} (${modelConfig.modelId})`);
+                    }}
+                    className="flex-1 py-2 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/35 hover:to-blue-500/35 text-cyan-400 border border-cyan-500/30 rounded-xl font-bold uppercase tracking-wider text-center flex items-center justify-center gap-1.5 shadow-lg active:scale-[0.98] transition-all cursor-pointer"
+                  >
+                    <Power size={11} className={isAgentConnecting ? "animate-spin text-cyan-400" : "text-cyan-400"} />
+                    <span>{isAgentConnected ? "Update & Reconnect Node" : "Connect Custom Node"}</span>
+                  </button>
                 </div>
               </div>
             )}

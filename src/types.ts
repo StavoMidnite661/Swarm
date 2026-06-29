@@ -45,3 +45,13 @@ export interface ExecutiveAgent {
   contextWindow: string;
   experience: string;
 }
+
+export interface ModelConfig {
+  provider: 'gemini-live' | 'gemini-rest' | 'openai-rest' | 'anthropic-rest' | 'ollama-local' | 'custom-rest';
+  modelId: string;
+  endpointUrl: string;
+  apiKey: string;
+  systemInstruction: string;
+  customHeaders: string;
+}
+
