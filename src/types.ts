@@ -53,5 +53,6 @@ export interface ModelConfig {
   apiKey: string;
   systemInstruction: string;
   customHeaders: string;
+  voiceName?: string;
 }
 

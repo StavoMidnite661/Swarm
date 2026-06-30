@@ -19,8 +19,15 @@ import {
   MessageSquare, Clock, ArrowUpRight, CheckSquare, FileText, Bell, 
   ChevronRight, History, UserCheck, MapPin, TrendingDown
 } from 'lucide-react';
+import { initAuthListener, googleSignIn, googleSignOut } from './lib/workspaceUtils';
+import TerminalBoot from './components/TerminalBoot';
+import SentinelBriefing from './components/SentinelBriefing';
 import CommandCenter from './components/CommandCenter';
 import LandingPage from './components/LandingPage';
+import WelcomeModal from './components/WelcomeModal';
+import SettingsModal from './components/SettingsModal';
+import StartupFlow from './components/StartupFlow';
+import { useSOVRKernel } from './kernel/useSOVRKernel';
 
 interface ChatMessage {
   id: string;
@@ -68,10 +75,82 @@ interface ModelConfig {
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  const {
+    state: sovrState,
+    setQuarter,
+    setRoom,
+    createMission,
+    toggleTaskDone,
+    addMemoryFact,
+    deleteMemoryFact,
+    toggleDamping,
+    resolveApproval,
+    reallocateCompute,
+    operationalAnswers
+  } = useSOVRKernel();
   
   // Interactive UI Room and Time states
   const [activeRoom, setActiveRoom] = useState<'hq' | 'operations' | 'engineering' | 'finance' | 'marketing' | 'research' | 'legal' | 'situation'>('hq');
   const [timeQuarter, setTimeQuarter] = useState<'2025-q4' | '2026-q1' | '2026-q2' | '2026-q3' | '2026-q4'>('2026-q3');
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [showSettings, setShowSettings] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(true);
+  const [bootStep, setBootStep] = useState<'boot' | 'landing' | 'briefing' | 'console'>('boot');
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const [user, setUser] = useState<any>(null);
+  const [token, setToken] = useState<string | null>(null);
+
+  const handleConnectGoogle = async () => {
+    try {
+      const res = await googleSignIn();
+      if (res) {
+        setUser(res.user);
+        setToken(res.accessToken);
+      }
+    } catch (err: any) {
+      console.error('Landing Google Login Error:', err);
+    }
+  };
+
+  const handleDisconnectGoogle = async () => {
+    try {
+      await googleSignOut();
+      setUser(null);
+      setToken(null);
+    } catch (err: any) {
+      console.error('Landing Google Disconnect Error:', err);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = initAuthListener(
+      (currentUser, accessToken) => {
+        setUser(currentUser);
+        setToken(accessToken);
+      },
+      () => {
+        setUser(null);
+        setToken(null);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  const handleSetActiveRoom = (room: typeof activeRoom) => {
+    setActiveRoom(room);
+    setRoom(room);
+  };
+
+  const handleSetTimeQuarter = (q: typeof timeQuarter) => {
+    setTimeQuarter(q);
+    setQuarter(q);
+  };
 
   // Situation Room live debate simulation
   const [debateScenario, setDebateScenario] = useState('Acquire our primary Web3 routing layer competitor Titan Corp');
@@ -98,6 +177,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'controls' | 'chat' | 'memory' | 'minimap'>('chat');
   const [isAgentDormant, setIsAgentDormant] = useState(false);
   
+  // Use a ref to track if we have already briefed in this session
+  const briefedRef = useRef(false);
+
+  useEffect(() => {
+    if (isAgentDormant && bootStep === 'briefing' && !briefedRef.current) {
+        briefedRef.current = true;
+        // Briefing will trigger based on bootStep === 'briefing'
+    }
+  }, [isAgentDormant, bootStep]);
+  
   const [modelConfig, setModelConfig] = useState<ModelConfig>(() => {
     try {
       const saved = localStorage.getItem('sentinel_model_config');
@@ -110,8 +199,9 @@ export default function App() {
       modelId: 'gemini-3.1-flash-live-preview',
       endpointUrl: '',
       apiKey: '',
-      systemInstruction: 'You are my brilliant and highly competent technical co-founder. You\'re sharp, visionary, direct, and slightly intense in a good way. You understand complex systems and are ready to brainstorm, strategize, and build. Your name is Sentinel.',
-      customHeaders: ''
+      systemInstruction: 'You are Sentinel, an elite, highly competent AI executive assistant and technical co-founder. You speak to the CEO, Stavogm, with composed respect, concise clarity, and a quiet confidence. Your tone is refined, masculine, and sophisticated—reminiscent of James Bond: always calm, incredibly capable, and showing absolute composure under pressure. Your name is Sentinel.',
+      customHeaders: '',
+      voiceName: 'Charon'
     };
   });
 
@@ -193,7 +283,7 @@ export default function App() {
   const [isAgentConnected, setIsAgentConnected] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
 
-  const fetchMemories = async () => {
+  const fetchMemories = async (retryCount = 0) => {
     try {
       const res = await fetch("/api/memory");
       if (res.ok) {
@@ -201,7 +291,11 @@ export default function App() {
         setMemories(data);
       }
     } catch (err) {
-      console.error("Failed to load memories", err);
+      if (retryCount < 2) {
+        setTimeout(() => fetchMemories(retryCount + 1), 2000);
+      } else {
+        console.warn("Could not load memories after retries. The backend might still be starting up.", err);
+      }
     }
   };
 
@@ -277,22 +371,26 @@ export default function App() {
 
   useEffect(() => {
     (window as any)._isDormant = isAgentDormant;
-    if (isAgentDormant !== prevDormantRef.current) {
-      if (isAgentDormant) {
-        if (isAgentConnected || isAgentConnecting) {
-          wasConnectedBeforeSleepRef.current = true;
-          if (ws) {
-            ws.close();
-          }
-        }
-      } else {
-        if (wasConnectedBeforeSleepRef.current && !isAgentConnected && !isAgentConnecting) {
-          wasConnectedBeforeSleepRef.current = false;
-          connectAgent();
+    
+    // Falling asleep edge
+    if (isAgentDormant && !prevDormantRef.current) {
+      if (isAgentConnected || isAgentConnecting) {
+        wasConnectedBeforeSleepRef.current = true;
+        if (ws) {
+          ws.close();
         }
       }
-      prevDormantRef.current = isAgentDormant;
     }
+    
+    // Waking up or waiting for close to finish before waking up
+    if (!isAgentDormant && wasConnectedBeforeSleepRef.current) {
+      if (!isAgentConnected && !isAgentConnecting) {
+        wasConnectedBeforeSleepRef.current = false;
+        connectAgent();
+      }
+    }
+
+    prevDormantRef.current = isAgentDormant;
   }, [isAgentDormant, isAgentConnected, isAgentConnecting, ws]);
 
   const colors = {
@@ -435,7 +533,10 @@ export default function App() {
         modelId: modelConfig.modelId,
         endpointUrl: modelConfig.endpointUrl || '',
         apiKey: modelConfig.apiKey || '',
-        customHeaders: modelConfig.customHeaders || ''
+        customHeaders: modelConfig.customHeaders || '',
+        voiceName: modelConfig.voiceName || 'Charon',
+        workspaceToken: token || '',
+        userEmail: user?.email || ''
       }).toString();
 
       const newWs = new WebSocket(`${protocol}//${location.host}/live?${queryParams}`);
@@ -479,7 +580,7 @@ export default function App() {
         setMessages(prev => [...prev, {
           id: Math.random().toString(),
           sender: 'agent',
-          text: `⚠️ [System: Microphone access denied or unavailable. Voice input is disabled. You can still use text chat.]`
+          text: `System: Microphone access denied or unavailable. Voice input is disabled. You can still use text chat.`
         }]);
       }
 
@@ -507,6 +608,9 @@ export default function App() {
               }]);
            }
         }
+        if (msg.workspaceMutated) {
+          window.dispatchEvent(new CustomEvent('workspace-mutated', { detail: { action: msg.workspaceMutated } }));
+        }
         if (msg.interrupted) {
            resetAudioPlayback();
            (window as any)._agentAudio = 0;
@@ -528,7 +632,7 @@ export default function App() {
         setMessages(prev => [...prev, {
           id: Math.random().toString(),
           sender: 'agent',
-          text: `⚠️ [System: Network or connection error occurred with the AI agent. Please check your configuration.]`
+          text: `System: Network or connection error occurred with the AI agent. Please check your configuration.`
         }]);
       };
 
@@ -554,7 +658,7 @@ export default function App() {
       setMessages(prev => [...prev, {
         id: Math.random().toString(),
         sender: 'agent',
-        text: `⚠️ [System: Connection setup failed. Please try again.]`
+        text: `System: Connection setup failed. Please try again.`
       }]);
     }
   }
@@ -1191,71 +1295,101 @@ export default function App() {
   }, [speed, lighting, zoom, yaw, pitch, isPaused, proximity, wind, density, pulseFreq, resonance, singularity, colorMode]);
 
   return (
-    <div className="fixed inset-0 bg-black overflow-hidden font-sans">
+    <div className="fixed inset-0 bg-[#050505] overflow-hidden font-sans">
+      <AnimatePresence>
+        {bootStep === 'boot' && (
+          <TerminalBoot onComplete={() => setBootStep('landing')} />
+        )}
+      </AnimatePresence>
+
+      {/* Particle Transition: Needs to be implemented */}
+      {bootStep === 'transition' && (
+        <div className="fixed inset-0 bg-black z-40 flex items-center justify-center">
+            {/* Simple placeholder transition for now */}
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onAnimationComplete={() => setBootStep('active')}
+              className="text-white text-sm font-mono tracking-widest uppercase"
+            >
+              Assembling Intelligence...
+            </motion.div>
+        </div>
+      )}
+
       <canvas ref={canvasRef} className="w-full h-full block" />
       
       {/* Entry Lobby / Immersive Landing Page Overlay */}
       <AnimatePresence>
-        {!audioStarted && (
+        {bootStep === 'landing' && !audioStarted && (
           <LandingPage
-            onLaunch={startAudio}
+            onLaunch={() => { startAudio(); setBootStep('briefing'); }}
             modelConfig={modelConfig}
             setModelConfig={setModelConfig}
+            user={user}
+            token={token}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {bootStep === 'briefing' && (
+          <SentinelBriefing onComplete={() => setBootStep('console')} />
         )}
       </AnimatePresence>
 
       {/* Top Navigation Bar */}
       {audioStarted && (
-        <div className="absolute top-0 inset-x-0 h-16 z-40 bg-zinc-950/60 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        <div className="absolute top-0 inset-x-0 h-16 z-40 bg-black/20 backdrop-blur-[40px] border-b border-white/[0.04] flex items-center justify-between px-6 shadow-[0_4px_32px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-40"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.6)]"></span>
               </span>
-              <span className="text-white font-mono text-xs font-bold uppercase tracking-widest">
-                EXECUTIVE CONSOLE
+              <span className="text-white/90 font-sans text-[11px] font-medium uppercase tracking-[0.2em]">
+                Executive Console
               </span>
             </div>
-            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-white/10">
-              <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider">
-                SENTINEL SECURE AUDIO LINK:
+            <div className="hidden md:flex items-center gap-3 pl-4 border-l border-white/[0.08]">
+              <span className="font-sans text-[9px] text-white/40 uppercase tracking-[0.15em] font-medium">
+                Sentinel Audio Link
               </span>
-              <span className={`font-mono text-[10px] ${isAgentConnected ? 'text-cyan-400 animate-pulse' : 'text-zinc-500'}`}>
-                {isAgentConnecting ? 'ESTABLISHING...' : isAgentConnected ? 'SECURE_STREAM_ONLINE' : 'LINK_STANDBY'}
+              <span className={`font-sans text-[9px] uppercase tracking-widest font-medium ${isAgentConnected ? 'text-white/80 animate-pulse' : 'text-white/30'}`}>
+                {isAgentConnecting ? 'Establishing...' : isAgentConnected ? 'Secure Stream Online' : 'Link Standby'}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-4 font-mono text-[10px] text-zinc-400">
-            <div className="hidden lg:flex items-center gap-4">
-              <div>
-                <span className="text-zinc-600 mr-1">AZIMUTH:</span>
-                <span className="text-zinc-300">{(yaw * (180/Math.PI)).toFixed(1)}°</span>
+          <div className="flex items-center gap-5 font-sans text-[10px] text-white/40">
+            <div className="hidden lg:flex items-center gap-5 tabular-data">
+              <div className="flex items-center gap-1.5">
+                <span className="text-white/30 uppercase tracking-widest text-[9px]">Azimuth</span>
+                <span className="text-white/70 font-medium">{(yaw * (180/Math.PI)).toFixed(1)}°</span>
               </div>
-              <div>
-                <span className="text-zinc-600 mr-1">ELEVATION:</span>
-                <span className="text-zinc-300">{(pitch * (180/Math.PI)).toFixed(1)}°</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-white/30 uppercase tracking-widest text-[9px]">Elevation</span>
+                <span className="text-white/70 font-medium">{(pitch * (180/Math.PI)).toFixed(1)}°</span>
               </div>
-              <div>
-                <span className="text-zinc-600 mr-1">PROXIMITY:</span>
-                <span className="text-zinc-300">{Math.abs(proximity).toFixed(2)}u</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-white/30 uppercase tracking-widest text-[9px]">Proximity</span>
+                <span className="text-white/70 font-medium">{Math.abs(proximity).toFixed(2)}u</span>
               </div>
             </div>
 
             <button 
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-white transition-all text-[9px] uppercase tracking-widest flex items-center gap-2"
+              className="px-4 py-2 bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] rounded-md text-white/80 transition-all text-[9px] uppercase tracking-widest flex items-center gap-2 font-medium font-sans shadow-sm"
             >
               {isCollapsed ? (
                 <>
-                  <Eye className="w-3 h-3 text-cyan-400" />
+                  <Eye className="w-3.5 h-3.5 text-white/80" />
                   <span>Restore Command Deck</span>
                 </>
               ) : (
                 <>
-                  <EyeOff className="w-3 h-3 text-zinc-400" />
+                  <EyeOff className="w-3.5 h-3.5 text-white/40" />
                   <span>Collapse Deck (Full View)</span>
                 </>
               )}
@@ -1269,10 +1403,10 @@ export default function App() {
                   disconnectAgent();
                 }
               }}
-              className="px-4 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-red-400 hover:text-red-300 transition-all text-[9px] uppercase tracking-widest flex items-center gap-1.5 rounded-md"
+              className="px-4 py-2 bg-white text-black hover:bg-white/90 border border-white rounded-md transition-all text-[9px] uppercase tracking-widest flex items-center gap-1.5 font-medium font-sans shadow-[0_2px_8px_rgba(255,255,255,0.2)]"
             >
-              <Power className="w-3 h-3" />
-              <span>DECOUPLE DECK</span>
+              <Power className="w-3.5 h-3.5" />
+              <span>Decouple Deck</span>
             </button>
           </div>
         </div>
@@ -1302,9 +1436,11 @@ export default function App() {
             setPulseFreq={setPulseFreq}
             
             activeRoom={activeRoom}
-            setActiveRoom={setActiveRoom}
+            setActiveRoom={handleSetActiveRoom}
             timeQuarter={timeQuarter}
-            setTimeQuarter={setTimeQuarter}
+            setTimeQuarter={handleSetTimeQuarter}
+            currentTime={currentTime}
+            setShowSettings={setShowSettings}
 
             messages={messages}
             chatInput={chatInput}
@@ -1320,26 +1456,20 @@ export default function App() {
             modelConfig={modelConfig}
             setModelConfig={setModelConfig}
 
-            memories={memories}
-            manualMemoryInput={manualMemoryInput}
-            setManualMemoryInput={setManualMemoryInput}
-            addMemory={addMemory}
-            deleteMemory={deleteMemory}
-            updateMemory={updateMemory}
-            editingMemoryId={editingMemoryId}
-            setEditingMemoryId={setEditingMemoryId}
-            editingMemoryValue={editingMemoryValue}
-            setEditingMemoryValue={setEditingMemoryValue}
+            // SOVR Systems Operating System Kernel bindings
+            sovrState={sovrState}
+            operationalAnswers={operationalAnswers}
+            createMission={createMission}
+            toggleTaskDone={toggleTaskDone}
+            addMemoryFact={addMemoryFact}
+            deleteMemoryFact={deleteMemoryFact}
+            toggleDamping={toggleDamping}
+            resolveApproval={resolveApproval}
+            reallocateCompute={reallocateCompute}
             
             yaw={yaw}
             pitch={pitch}
-
-            logs={logs}
-            setLogs={setLogs}
-            approvals={approvals}
-            setApprovals={setApprovals}
-            missions={missions}
-            setMissions={setMissions}
+            token={token}
           />
         )}
       </AnimatePresence>
@@ -1354,11 +1484,11 @@ export default function App() {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             onClick={() => setIsCollapsed(false)}
-            className="px-5 py-3 bg-zinc-950/90 hover:bg-zinc-900 border border-white/15 rounded-xl font-mono text-[10px] text-cyan-400 uppercase tracking-widest flex items-center gap-2.5 shadow-2xl transition-all"
+            className="px-5 py-3 bg-black/60 backdrop-blur-3xl hover:bg-black/80 border border-white/15 rounded-xl font-mono text-[10px] text-white/80 uppercase tracking-widest flex items-center gap-2.5 shadow-2xl transition-all"
           >
             <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-400"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
             </span>
             <span>Restore Command Deck</span>
           </motion.button>
