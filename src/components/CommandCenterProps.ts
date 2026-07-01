@@ -57,7 +57,6 @@ export interface BaseCommandCenterProps {
   pitch: number;
   currentTime: Date;
   setShowSettings: (v: boolean) => void;
-  token: string | null;
 }
 
 export interface PanelProps extends BaseCommandCenterProps {
@@ -85,6 +84,8 @@ export interface PanelProps extends BaseCommandCenterProps {
   setDebateResult: (v: any) => void;
   showToast: (msg: string) => void;
   runSimulationDebate: () => void;
+  mobileTab?: 'nodes' | 'central' | 'right';
+  setMobileTab?: (v: 'nodes' | 'central' | 'right') => void;
 }
 
 export type CommandCenterProps = BaseCommandCenterProps;

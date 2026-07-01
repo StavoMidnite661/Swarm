@@ -20,13 +20,12 @@ import {
   ChevronRight, History, UserCheck, MapPin, TrendingDown
 } from 'lucide-react';
 import { initAuthListener, googleSignIn, googleSignOut } from './lib/workspaceUtils';
-import TerminalBoot from './components/TerminalBoot';
-import SentinelBriefing from './components/SentinelBriefing';
 import CommandCenter from './components/CommandCenter';
 import LandingPage from './components/LandingPage';
 import WelcomeModal from './components/WelcomeModal';
 import SettingsModal from './components/SettingsModal';
-import StartupFlow from './components/StartupFlow';
+import ExecutiveBriefing from './components/ExecutiveBriefing';
+import BootSequence from './components/BootSequence';
 import { useSOVRKernel } from './kernel/useSOVRKernel';
 
 interface ChatMessage {
@@ -96,7 +95,9 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [bootStep, setBootStep] = useState<'boot' | 'landing' | 'briefing' | 'console'>('boot');
+  const [bootStarted, setBootStarted] = useState(false);
+  const [bootCompleted, setBootCompleted] = useState(false);
+  const [briefingCompleted, setBriefingCompleted] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -176,16 +177,6 @@ export default function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<'controls' | 'chat' | 'memory' | 'minimap'>('chat');
   const [isAgentDormant, setIsAgentDormant] = useState(false);
-  
-  // Use a ref to track if we have already briefed in this session
-  const briefedRef = useRef(false);
-
-  useEffect(() => {
-    if (isAgentDormant && bootStep === 'briefing' && !briefedRef.current) {
-        briefedRef.current = true;
-        // Briefing will trigger based on bootStep === 'briefing'
-    }
-  }, [isAgentDormant, bootStep]);
   
   const [modelConfig, setModelConfig] = useState<ModelConfig>(() => {
     try {
@@ -406,24 +397,32 @@ export default function App() {
       // Landing page state
       (window as any)._shaderOffsetX = -0.05;
       (window as any)._shaderOffsetY = 0.0;
+      (window as any)._shaderZoom = 1.2;
       setYaw(33 * (Math.PI / 180));
       setPitch(-17 * (Math.PI / 180));
       setIsAgentDormant(false);
+    } else if (!briefingCompleted) {
+      // Briefing stage: Center the camera perfectly and keep it slow & majestic
+      (window as any)._shaderOffsetX = 0.0;
+      (window as any)._shaderOffsetY = 0.0;
+      (window as any)._shaderZoom = 1.05;
+      (window as any)._shaderSpeed = 0.25;
     } else {
-      // Entry animation
+      // Entry animation after briefing completed
       let start = performance.now();
-      const duration = 2500; // 2.5s for 360 spin
-      const startYaw = 33 * (Math.PI / 180);
+      const duration = 2800; // 2.8s transition
+      const startYaw = yaw;
       const targetYaw = startYaw + (Math.PI * 2);
-      const startOffsetX = -0.05;
+      const startOffsetX = 0.0;
       const targetOffsetX = -0.15;
       const startOffsetY = 0.0;
       const targetOffsetY = 0.15;
+      const startZoom = 1.05;
+      const targetZoom = 1.69;
 
       const animateEntry = (time: number) => {
         const elapsed = time - start;
         const progress = Math.min(elapsed / duration, 1.0);
-        // easeInOut cubic
         const ease = progress < 0.5 
           ? 4 * progress * progress * progress 
           : 1 - Math.pow(-2 * progress + 2, 3) / 2;
@@ -431,6 +430,7 @@ export default function App() {
         setYaw(startYaw + (targetYaw - startYaw) * ease);
         (window as any)._shaderOffsetX = startOffsetX + (targetOffsetX - startOffsetX) * ease;
         (window as any)._shaderOffsetY = startOffsetY + (targetOffsetY - startOffsetY) * ease;
+        (window as any)._shaderZoom = startZoom + (targetZoom - startZoom) * ease;
 
         if (progress < 1.0) {
           requestAnimationFrame(animateEntry);
@@ -441,7 +441,7 @@ export default function App() {
       
       requestAnimationFrame(animateEntry);
     }
-  }, [audioStarted, setYaw, setPitch, setIsAgentDormant]);
+  }, [audioStarted, briefingCompleted, setYaw, setPitch, setIsAgentDormant]);
 
   const noiseGainRef = useRef<GainNode | null>(null);
   const filterRef = useRef<BiquadFilterNode | null>(null);
@@ -1295,34 +1295,14 @@ export default function App() {
   }, [speed, lighting, zoom, yaw, pitch, isPaused, proximity, wind, density, pulseFreq, resonance, singularity, colorMode]);
 
   return (
-    <div className="fixed inset-0 bg-[#050505] overflow-hidden font-sans">
-      <AnimatePresence>
-        {bootStep === 'boot' && (
-          <TerminalBoot onComplete={() => setBootStep('landing')} />
-        )}
-      </AnimatePresence>
-
-      {/* Particle Transition: Needs to be implemented */}
-      {bootStep === 'transition' && (
-        <div className="fixed inset-0 bg-black z-40 flex items-center justify-center">
-            {/* Simple placeholder transition for now */}
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onAnimationComplete={() => setBootStep('active')}
-              className="text-white text-sm font-mono tracking-widest uppercase"
-            >
-              Assembling Intelligence...
-            </motion.div>
-        </div>
-      )}
-
+    <div className="fixed inset-0 bg-black overflow-hidden font-sans">
       <canvas ref={canvasRef} className="w-full h-full block" />
       
       {/* Entry Lobby / Immersive Landing Page Overlay */}
       <AnimatePresence>
-        {bootStep === 'landing' && !audioStarted && (
+        {!bootStarted && (
           <LandingPage
-            onLaunch={() => { startAudio(); setBootStep('briefing'); }}
+            onLaunch={() => setBootStarted(true)}
             modelConfig={modelConfig}
             setModelConfig={setModelConfig}
             user={user}
@@ -1333,15 +1313,31 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Cinematic Boot Sequence Overlay */}
       <AnimatePresence>
-        {bootStep === 'briefing' && (
-          <SentinelBriefing onComplete={() => setBootStep('console')} />
+        {bootStarted && !bootCompleted && (
+          <BootSequence
+            onComplete={() => {
+              setBootCompleted(true);
+              startAudio();
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Cinematic Executive Briefing Overlay */}
+      <AnimatePresence>
+        {audioStarted && bootCompleted && !briefingCompleted && (
+          <ExecutiveBriefing 
+            onComplete={() => setBriefingCompleted(true)} 
+            setYaw={setYaw} 
+          />
         )}
       </AnimatePresence>
 
       {/* Top Navigation Bar */}
-      {audioStarted && (
-        <div className="absolute top-0 inset-x-0 h-16 z-40 bg-black/20 backdrop-blur-[40px] border-b border-white/[0.04] flex items-center justify-between px-6 shadow-[0_4px_32px_rgba(0,0,0,0.5)]">
+      {audioStarted && briefingCompleted && (
+        <div className="absolute top-0 inset-x-0 h-16 z-40 bg-black/20 backdrop-blur-[40px] border-b border-white/[0.04] flex items-center justify-between px-6 shadow-[0_4px_32px_rgba(0,0,0,0.5)] animate-fadeIn">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="relative flex h-1.5 w-1.5">
@@ -1397,7 +1393,10 @@ export default function App() {
 
             <button 
               onClick={() => {
+                setBootStarted(false);
+                setBootCompleted(false);
                 setAudioStarted(false);
+                setBriefingCompleted(false);
                 // Also disconnect agents if connected
                 if (isAgentConnected) {
                   disconnectAgent();
@@ -1414,7 +1413,7 @@ export default function App() {
 
       {/* Main Command Deck Grid */}
       <AnimatePresence>
-        {audioStarted && !isCollapsed && (
+        {audioStarted && briefingCompleted && !isCollapsed && (
           <CommandCenter
             speed={speed}
             setSpeed={setSpeed}
@@ -1469,7 +1468,6 @@ export default function App() {
             
             yaw={yaw}
             pitch={pitch}
-            token={token}
           />
         )}
       </AnimatePresence>
@@ -1477,7 +1475,7 @@ export default function App() {
 
 
       {/* Floater when system panel collapsed */}
-      {audioStarted && isCollapsed && (
+      {audioStarted && briefingCompleted && isCollapsed && (
         <div className="absolute bottom-6 right-6 z-40">
           <motion.button 
             layoutId="system-panel-trigger"

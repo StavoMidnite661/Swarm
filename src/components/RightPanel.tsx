@@ -843,12 +843,10 @@ export default function RightPanel(props: PanelProps) {
   return (
     <>
       {/* SECURE COMMS & AUDIT STREAM - Glass Right Panel */}
-      <div className="lg:col-span-4 flex flex-col gap-3 h-full overflow-hidden relative" id="secure-right-panel" ref={panelRef}>
+      <div className={`lg:col-span-6 flex-col gap-3 h-full overflow-hidden relative ${props.mobileTab === 'right' ? 'flex' : 'hidden lg:flex'}`} id="secure-right-panel" ref={panelRef}>
         
-        <div className="flex-1 bg-gradient-to-br from-[#121212] via-[#050505] to-[#0a0a0a] backdrop-blur-[40px] border border-white/[0.05] rounded-3xl p-6 flex flex-col gap-5 shadow-[0_10px_40px_rgba(0,0,0,0.8),inset_0_1px_1px_rgba(255,255,255,0.05)] overflow-hidden relative">
-          {/* Subtle Ambient Reflector */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-accent-violet/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-accent-cyan/5 via-transparent to-transparent pointer-events-none" />
+        <div className="flex-1 glass-primary marble-reflection rounded-[16px] p-5 flex flex-col gap-4 overflow-hidden relative" id="secure-right-panel-inner">
+          <div className="absolute inset-x-0 h-[1px] bg-white/[0.08] top-0" />
           
           {/* PERSISTENT REAL-WORLD GOOGLE WORKSPACE STATUS INTEGRITY BANNER */}
           <div className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-[12px] shrink-0 font-sans text-[11px] relative overflow-hidden" id="workspace-intelligence-status-banner">
@@ -1166,7 +1164,7 @@ export default function RightPanel(props: PanelProps) {
                       <div className="grid grid-cols-7 text-center font-sans text-[9px] text-white/50 py-2.5 border-b border-white/[0.04] bg-white/[0.01] font-medium uppercase tracking-[0.2em]">
                         <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
                       </div>
-                      <div className="grid grid-cols-7 flex-1 content-stretch border-l border-t border-white/[0.04]">
+                      <div className="grid grid-cols-7 grid-rows-5 flex-1 border-l border-t border-white/[0.04]">
                         {/* Empty cells before June 1, 2026 (June 1st is Monday, so 1 empty cell for Sunday) */}
                         <div className="p-1 opacity-20 text-white/30 border-r border-b border-white/[0.04] flex items-center justify-center font-sans text-[10px]">31</div>
                         {[...Array(30)].map((_, index) => {
@@ -1184,7 +1182,7 @@ export default function RightPanel(props: PanelProps) {
                             <div 
                               key={index} 
                               onClick={() => setSelectedDate(new Date(2026, 5, dayNum))}
-                              className={`p-1.5 flex flex-col justify-between items-center cursor-pointer group transition-all aspect-square border-r border-b border-white/[0.04] relative ${
+                              className={`p-1.5 flex flex-col justify-between items-center cursor-pointer group transition-all border-r border-b border-white/[0.04] relative ${
                                 isToday ? 'bg-white/[0.08] shadow-[inset_0_1px_3px_rgba(255,255,255,0.2),0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/10 z-10' : 'hover:bg-white/[0.02]'
                               }`}
                             >
@@ -1399,53 +1397,85 @@ export default function RightPanel(props: PanelProps) {
                     return (
                       <div 
                         key={email.id} 
-                        className={`border rounded-2xl transition-all overflow-hidden ${isExpanded ? 'border-white/[0.15] bg-white/[0.04]' : 'border-white/[0.04] bg-white/[0.01] hover:bg-white/[0.03]'}`}
+                        className={`border rounded-[16px] transition-all duration-300 overflow-hidden ${isExpanded ? 'border-white/[0.15] bg-white/[0.03] shadow-lg' : 'border-white/[0.04] bg-white/[0.01] hover:bg-white/[0.02]'}`}
                       >
                         <div 
                           onClick={() => setExpandedEmailId(isExpanded ? null : email.id)}
-                          className="p-4 cursor-pointer flex justify-between items-start gap-4 select-none"
+                          className="p-3.5 cursor-pointer flex justify-between items-start gap-3 select-none"
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-3">
-                              {email.unread && <span className="w-1.5 h-1.5 rounded-full bg-accent-violet shadow-[0_0_8px_rgba(139,92,246,0.6)] shrink-0" />}
-                              <span className={`text-[13px] truncate block ${email.unread ? 'font-medium text-white' : 'text-white/60'}`}>{email.from.split('<')[0].replace(/"/g,'').trim()}</span>
+                            <div className="flex items-center gap-2">
+                              {email.unread && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)] shrink-0" />}
+                              <span className={`text-[12px] truncate block font-sans tracking-wide ${email.unread ? 'font-semibold text-white/95' : 'font-medium text-white/60'}`}>{email.from.split('<')[0].replace(/"/g,'').trim()}</span>
                             </div>
-                            <h4 className={`text-[12px] truncate mt-1.5 tracking-wide ${email.unread ? 'text-white/80' : 'text-white/40'}`}>{email.subject}</h4>
+                            <h4 className={`text-[11px] truncate mt-1 tracking-wide font-sans ${email.unread ? 'text-white/80' : 'text-white/40'}`}>{email.subject}</h4>
                           </div>
-                          <span className="text-[10px] font-sans text-white/40 shrink-0 mt-0.5 tabular-data tracking-widest uppercase">{email.date.split(',')[1]?.split('(')[0]?.trim() || email.date.split(' ')[0]}</span>
+                          <span className="text-[9px] font-sans text-white/30 shrink-0 mt-0.5 tabular-data tracking-widest uppercase">{email.date.split(',')[1]?.split('(')[0]?.trim() || email.date.split(' ')[0]}</span>
                         </div>
-
+ 
                         {/* Expandable Panel */}
                         {isExpanded && (
-                          <div className="border-t border-white/[0.04] p-5 bg-black/30 space-y-6">
-                            <div className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-xl text-white/90 font-sans leading-relaxed whitespace-pre-wrap text-[12px] tracking-wide">
+                          <div className="border-t border-white/[0.04] p-4 bg-black/45 space-y-4 font-sans text-xs">
+                            {/* Apple Mail / Superhuman Header Details */}
+                            <div className="space-y-1.5 border-b border-white/[0.04] pb-3 text-[11px] text-white/50">
+                              <div className="flex justify-between">
+                                <div><span className="text-white/30">From:</span> <span className="text-white/80 font-medium">{email.from}</span></div>
+                                <div className="flex gap-1.5">
+                                  <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-sans text-[8px] uppercase tracking-wider font-semibold">INBOX</span>
+                                  <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-white/60 font-sans text-[8px] uppercase tracking-wider">SECURE</span>
+                                </div>
+                              </div>
+                              <div><span className="text-white/30">To:</span> <span className="text-white/85">stavogm@sovereign-os.co</span></div>
+                              <div><span className="text-white/30">Date:</span> <span className="text-white/70 tabular-data">{email.date}</span></div>
+                            </div>
+ 
+                            {/* Email Message Body */}
+                            <div className="p-3 bg-white/[0.01] border border-white/[0.04] rounded-xl text-white/80 font-sans leading-relaxed whitespace-pre-wrap text-[11px] tracking-wide relative overflow-hidden">
+                              <div className="absolute top-0 right-0 w-12 h-12 bg-gradient-to-bl from-white/[0.01] to-transparent pointer-events-none" />
                               {email.snippet}
                             </div>
-                            
-                            {/* Action Area */}
-                            <div className="space-y-4 pt-4 border-t border-white/[0.04]">
+ 
+                            {/* Simulated Attachments */}
+                            <div className="flex flex-wrap gap-2">
+                              <div className="flex items-center gap-2 px-3 py-1.5 bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 rounded-lg text-[10px] text-white/70 cursor-pointer transition-colors">
+                                <FileText size={12} className="text-white/40" />
+                                <span>audit_sheet_q3.xlsx</span>
+                                <span className="text-[8px] text-white/30 font-mono">(4.2 MB)</span>
+                              </div>
+                            </div>
+ 
+                            {/* Action Buttons */}
+                            <div className="flex gap-1.5 pt-1">
+                              <button type="button" className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-[9px] text-white/80 uppercase tracking-wider font-semibold transition-all">Forward</button>
+                              <button type="button" className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-[9px] text-white/80 uppercase tracking-wider font-semibold transition-all">Archive</button>
+                              <button type="button" className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-[9px] text-white/80 uppercase tracking-wider font-semibold transition-all">Mute Thread</button>
+                            </div>
+ 
+                            {/* Reply Form */}
+                            <div className="space-y-3 pt-4 border-t border-white/[0.04]">
                               <div className="flex justify-between items-center">
-                                <span className="font-sans text-[10px] text-white/50 uppercase font-medium tracking-[0.2em]">Quick Executive Response</span>
+                                <span className="font-sans text-[9px] text-white/40 uppercase font-medium tracking-[0.15em]">Reply Dispatch</span>
                                 <button 
+                                  type="button"
                                   onClick={() => {
                                     setEmailReplyText(`Gentlemen,\n\nI have authorized EIOS Sentinel to coordinate our resources. Proceed under standard operational rules.\n\nStavogm\nFounder`);
                                   }}
-                                  className="text-[10px] text-white/70 hover:text-white transition-colors font-sans font-medium flex items-center gap-1.5 uppercase tracking-widest"
+                                  className="text-[9px] text-cyan-400 hover:text-cyan-300 transition-colors font-sans font-medium flex items-center gap-1 uppercase tracking-widest"
                                 >
-                                  <Sparkles size={11} />
-                                  <span>Autocompose</span>
+                                  <Sparkles size={10} />
+                                  <span>Autocompose (Executive)</span>
                                 </button>
                               </div>
                               <textarea 
                                 value={emailReplyText}
                                 onChange={(e) => setEmailReplyText(e.target.value)}
-                                placeholder="Write response..."
-                                rows={4}
-                                className="w-full bg-white/[0.02] border border-white/[0.08] rounded-xl p-4 text-white/90 resize-none text-[12px] focus:outline-none focus:border-accent-violet/50 transition-all font-sans"
+                                placeholder="Confidential reply context..."
+                                rows={3}
+                                className="w-full bg-white/[0.01] border border-white/[0.08] rounded-xl p-3 text-white/90 resize-none text-[11px] focus:outline-none focus:border-cyan-500/20 transition-all font-sans leading-relaxed"
                               />
-                              <div className="flex justify-end gap-3">
-                                <button onClick={() => setExpandedEmailId(null)} className="px-4 py-2 border border-white/[0.08] hover:bg-white/[0.04] text-[10px] rounded-lg text-white/60 hover:text-white transition-colors font-sans font-medium tracking-widest uppercase">Collapse</button>
-                                <button onClick={() => handleSendEmailReply(email)} className="px-5 py-2 bg-white text-black font-medium rounded-lg font-sans text-[10px] uppercase tracking-widest hover:bg-white/90 transition-all shadow-[0_0_12px_rgba(255,255,255,0.1)]">Send Reply</button>
+                              <div className="flex justify-end gap-2">
+                                <button type="button" onClick={() => setExpandedEmailId(null)} className="px-3 py-1.5 border border-white/[0.08] hover:bg-white/[0.04] text-[9px] rounded-md text-white/60 hover:text-white transition-colors font-sans font-medium tracking-widest uppercase">Collapse</button>
+                                <button type="button" onClick={() => handleSendEmailReply(email)} className="px-4 py-1.5 bg-white text-black font-semibold rounded-md font-sans text-[9px] uppercase tracking-widest shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:bg-white/90 transition-all">Send Reply</button>
                               </div>
                             </div>
                           </div>
@@ -1549,7 +1579,7 @@ export default function RightPanel(props: PanelProps) {
               <div className="flex-1 flex gap-3 overflow-hidden">
                 
                 {/* Contact Dossiers List */}
-                <div className="flex-1 overflow-y-auto space-y-2 pr-2 max-h-[300px]">
+                <div className="flex-1 overflow-y-auto space-y-2 pr-2">
                   {filteredContacts.length === 0 ? (
                     <div className="py-8 text-center text-white/30 font-sans font-medium tracking-[0.2em] text-[10px] uppercase">Rolodex Empty</div>
                   ) : (

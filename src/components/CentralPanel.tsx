@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { PanelProps } from './CommandCenterProps';
 import WorkspaceConsole from './WorkspaceConsole';
-import DailyBriefing from './DailyBriefing';
 
 export default function CentralPanel(props: PanelProps) {
   const {
@@ -28,7 +27,6 @@ export default function CentralPanel(props: PanelProps) {
     debateScenario, setDebateScenario, isDebating, setIsDebating,
     debateStep, setDebateStep, debateLogs, setDebateLogs, debateResult, setDebateResult,
     showToast, runSimulationDebate,
-    token,
     
     // SOVR OS Core Bindings
     sovrState,
@@ -175,7 +173,7 @@ export default function CentralPanel(props: PanelProps) {
   return (
     <>
       {/* ACTIVE ROOM DISPLAY - Central Glass Panel Area */}
-      <div className="lg:col-span-5 flex flex-col gap-3 h-full overflow-hidden" id="central-glass-container">
+      <div className={`lg:col-span-4 flex-col gap-3 h-full overflow-hidden ${props.mobileTab === 'central' ? 'flex' : 'hidden lg:flex'}`} id="central-glass-container">
         
         <div className="flex-1 bg-gradient-to-br from-white/10 to-transparent backdrop-blur-3xl shadow-[inset_0_1px_2px_rgba(255,255,255,0.4),0_8px_32px_rgba(0,0,0,0.5)] border border-white/10 border-t-white/30 border-l-white/20 rounded-2xl p-5 flex flex-col gap-4 shadow-2xl relative overflow-hidden">
           
@@ -211,7 +209,6 @@ export default function CentralPanel(props: PanelProps) {
             {/* CORE 01: EXECUTIVE COMMAND */}
           {activeRoom === 'hq' && (
             <div className="flex-1 flex flex-col gap-4" id="executive-briefing-container">
-              <DailyBriefing token={token} />
               
               {/* ORGANIZATIONAL INTELLIGENCE & CONFIDENCE HEADER */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
