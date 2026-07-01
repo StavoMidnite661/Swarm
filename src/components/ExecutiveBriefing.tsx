@@ -15,10 +15,14 @@ export default function ExecutiveBriefing({ onComplete, setYaw }: ExecutiveBrief
   const [currentStep, setCurrentStep] = useState(0);
   const [greeting, setGreeting] = useState('Good Morning, Sir.');
   const [isMuted, setIsMuted] = useState(false);
+  const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
+  const [isBriefingStarted, setIsBriefingStarted] = useState(true);
+  const [audioRetryCounter, setAudioRetryCounter] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // Automatically determine the dynamic greeting based on actual time
   useEffect(() => {
+    console.log("[SOVR] ExecutiveBriefing mounted, isBriefingStarted:", isBriefingStarted);
     const hours = new Date().getHours();
     if (hours < 12) {
       setGreeting('Good Morning, Sir.');
@@ -31,6 +35,7 @@ export default function ExecutiveBriefing({ onComplete, setYaw }: ExecutiveBrief
 
   // Set the canvas positions to center the orb and let it rotate slowly during briefing
   useEffect(() => {
+    console.log("[SOVR] Briefing started effect, isBriefingStarted:", isBriefingStarted);
     (window as any)._shaderOffsetX = 0.0;
     (window as any)._shaderOffsetY = 0.0;
     (window as any)._shaderZoom = 1.0;
@@ -154,66 +159,150 @@ export default function ExecutiveBriefing({ onComplete, setYaw }: ExecutiveBrief
 
   // Vocalize current step with browser SpeechSynthesis
   useEffect(() => {
-    if (!window.speechSynthesis || isMuted) {
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
+    console.log("[SOVR] Voice synthesis effect, currentStep:", currentStep, "isBriefingStarted:", isBriefingStarted);
+    if (!isBriefingStarted) {
+      console.log("[SOVR] Briefing not started, exiting synthesis effect");
+      return;
+    }
+
+    if (!window.speechSynthesis) {
+      console.error("[SOVR] SpeechSynthesis not supported");
+      return;
+    }
+
+    if (isMuted) {
+      console.log("[SOVR] Muted, canceling synthesis");
+      window.speechSynthesis.cancel();
       return;
     }
 
     // Cancel active synthesis first
     window.speechSynthesis.cancel();
 
-    const textToSpeak = briefingSteps[currentStep].speechText;
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-
-    // Try to find a premium, calm, deep English voice (such as Google UK English Male/Female, Microsoft David, etc.)
-    const voices = window.speechSynthesis.getVoices();
-    const premiumVoice = voices.find(v => 
-      v.name.includes('Google UK English') || 
-      v.name.includes('Premium') || 
-      v.name.includes('Natural') || 
-      (v.lang.startsWith('en') && v.name.includes('Male'))
-    ) || voices.find(v => v.lang.startsWith('en'));
-
-    if (premiumVoice) {
-      utterance.voice = premiumVoice;
+    const activeStepData = briefingSteps[currentStep];
+    if (!activeStepData) {
+      return;
     }
+
+    const textToSpeak = activeStepData.speechText;
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utteranceRef.current = utterance; // Prevent garbage collection of utterance before onend fires
+    
+    // Try to find a premium, calm, deep English voice (such as Google UK English Male/Female, Microsoft David, etc.)
+    const setVoice = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const premiumVoice = voices.find(v => 
+        v.name.includes('Google UK English') || 
+        v.name.includes('Premium') || 
+        v.name.includes('Natural') || 
+        (v.lang.startsWith('en') && v.name.includes('Male'))
+      ) || voices.find(v => v.lang.startsWith('en'));
+
+      if (premiumVoice) {
+        utterance.voice = premiumVoice;
+      }
+    };
+
+    setVoice();
+    window.speechSynthesis.onvoiceschanged = setVoice;
 
     // Set professional, calm, measured speech rates
     utterance.rate = 0.94;
     utterance.pitch = 0.95;
 
-    // Advance to next slide when speech is complete
-    utterance.onend = () => {
-      if (currentStep < briefingSteps.length - 1) {
-        setCurrentStep(currentStep + 1);
-      } else {
-        // Add a tiny 1.2-second comfortable pause at the end of the final voice statement before integrating
-        setTimeout(() => {
+    let advanceTimeoutId: NodeJS.Timeout | null = null;
+    let errorTimeoutId: NodeJS.Timeout | null = null;
+
+    const advanceStep = () => {
+      setCurrentStep(prev => {
+        if (prev < briefingSteps.length - 1) {
+          return prev + 1;
+        } else {
           onComplete();
-        }, 1200);
-      }
+          return prev;
+        }
+      });
     };
 
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+    // Advance to next slide when speech is complete
+    utterance.onend = () => {
+      if (advanceTimeoutId) clearTimeout(advanceTimeoutId);
+      if (errorTimeoutId) clearTimeout(errorTimeoutId);
+      
+      setCurrentStep(prev => {
+        if (prev < briefingSteps.length - 1) {
+          return prev + 1;
+        } else {
+          // Add a tiny 1.2-second comfortable pause at the end of the final voice statement before integrating
+          const endTimeout = setTimeout(() => {
+            onComplete();
+          }, 1200);
+          advanceTimeoutId = endTimeout;
+          return prev;
+        }
+      });
+    };
+
+    utterance.onerror = (e) => {
+      console.error("[SOVR] SpeechSynthesis error:", (e as any).error, e);
+      if (advanceTimeoutId) clearTimeout(advanceTimeoutId);
+      
+      const errorType = (e as any).error;
+      if (errorType === 'not-allowed') {
+        setIsAutoplayBlocked(true);
+      }
+      
+      // If blocked by autoplay ('not-allowed'), act as a visual-only slide with a 7.5s reading duration
+      const duration = errorType === 'not-allowed' ? 7500 : 5000;
+      errorTimeoutId = setTimeout(() => {
+        advanceStep();
+      }, duration);
+    };
+
+    // Safety timeout in case speech gets stuck, paused, or garbage-collected without firing onend/onerror
+    const wordsCount = textToSpeak.split(/\s+/).length;
+    const estimatedDurationMs = (wordsCount / 2.0) * 1000 + 5000;
+    const safetyTimeoutMs = Math.max(9500, estimatedDurationMs);
+
+    advanceTimeoutId = setTimeout(() => {
+      console.warn(`[SOVR] Speech safety timeout reached for step ${currentStep}`);
+      advanceStep();
+    }, safetyTimeoutMs);
+
+    try {
+      // Resume is needed in many browsers to kickstart SpeechSynthesis after dormancy
+      window.speechSynthesis.resume();
+      console.log("[SOVR] Attempting to speak, voice:", utterance.voice ? utterance.voice.name : "default");
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.error("[SOVR] Failed to speak utterance:", err);
+      // Fallback: advance after 7.5s reading time
+      errorTimeoutId = setTimeout(() => {
+        advanceStep();
+      }, 7500);
+    }
 
     return () => {
+      if (advanceTimeoutId) clearTimeout(advanceTimeoutId);
+      if (errorTimeoutId) clearTimeout(errorTimeoutId);
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
     };
-  }, [currentStep, isMuted]);
+  }, [currentStep, isMuted, isBriefingStarted, audioRetryCounter]);
 
   // Handle auto-progressing steps
   useEffect(() => {
-    // If NOT muted, we rely ENTIRELY on the voice ending to progress to the next step
-    if (!isMuted && window.speechSynthesis) {
+    if (!isBriefingStarted) {
       return;
     }
 
-    // Otherwise, if muted or not supported, we progress with a classic interval
+    // If NOT muted and NOT blocked, we rely ENTIRELY on the voice ending to progress to the next step
+    if (!isMuted && !isAutoplayBlocked && window.speechSynthesis) {
+      return;
+    }
+
+    // Otherwise, if muted or not supported or blocked, we progress with a classic interval
     const interval = setInterval(() => {
       setCurrentStep(prev => {
         if (prev < briefingSteps.length - 1) {
@@ -230,30 +319,65 @@ export default function ExecutiveBriefing({ onComplete, setYaw }: ExecutiveBrief
     }, 7500);
 
     return () => clearInterval(interval);
-  }, [isMuted]);
+  }, [isMuted, isBriefingStarted, isAutoplayBlocked]);
 
-  const activeStep = briefingSteps[currentStep];
+  const activeStep = briefingSteps[currentStep] || briefingSteps[0];
   const IconComponent = activeStep.icon;
 
+  const handleStartBriefing = () => {
+    setIsBriefingStarted(true);
+    setIsAutoplayBlocked(false);
+    setIsMuted(false);
+    setAudioRetryCounter(prev => prev + 1);
+  };
+
   const handleNext = () => {
-    if (currentStep < briefingSteps.length - 1) {
-      setCurrentStep(currentStep + 1);
-    } else {
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-      onComplete();
+    if (!isBriefingStarted) {
+      handleStartBriefing();
     }
+    setCurrentStep(prev => {
+      if (prev < briefingSteps.length - 1) {
+        return prev + 1;
+      } else {
+        if (window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
+        onComplete();
+        return prev;
+      }
+    });
   };
 
   const handleBack = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
-    }
+    setCurrentStep(prev => {
+      if (prev > 0) {
+        return prev - 1;
+      }
+      return prev;
+    });
   };
 
   const handleToggleMute = () => {
-    setIsMuted(!isMuted);
+    // Unlock SpeechSynthesis during a direct user interaction
+    if (window.speechSynthesis) {
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    }
+    
+    if (isAutoplayBlocked) {
+      handleStartBriefing();
+      return;
+    }
+    if (isMuted) {
+      setIsMuted(false);
+      setIsAutoplayBlocked(false);
+      setIsBriefingStarted(true);
+      setAudioRetryCounter(prev => prev + 1);
+    } else {
+      setIsMuted(true);
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    }
   };
 
   return (
@@ -284,12 +408,23 @@ export default function ExecutiveBriefing({ onComplete, setYaw }: ExecutiveBrief
           {/* Audio Output Status Toggle */}
           <button 
             onClick={handleToggleMute}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] rounded-lg transition-all text-white/70 hover:text-white"
+            className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg transition-all ${
+              isMuted 
+                ? 'bg-white/[0.02] border-white/[0.06] text-white/70 hover:text-white' 
+                : isAutoplayBlocked 
+                  ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20 shadow-[0_0_15px_rgba(234,179,8,0.15)]' 
+                  : 'bg-white/[0.02] border-white/[0.06] text-white/70 hover:text-white'
+            }`}
           >
             {isMuted ? (
               <>
                 <VolumeX size={12} className="text-red-400" />
                 <span>VOICE MUTED</span>
+              </>
+            ) : isAutoplayBlocked ? (
+              <>
+                <Volume2 size={12} className="text-yellow-400 animate-bounce" />
+                <span>CLICK TO UNBLOCK VOICE</span>
               </>
             ) : (
               <>
@@ -367,28 +502,43 @@ export default function ExecutiveBriefing({ onComplete, setYaw }: ExecutiveBrief
                 {activeStep.desc}
               </p>
 
-              {/* Subsurface Waveform showing Sentinel is speaking */}
-              <div className="mt-8 flex items-center gap-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-2xl max-w-md shadow-sm">
-                <div className="flex gap-1 items-end h-6 w-12 overflow-hidden pb-1 flex-shrink-0">
-                  {[...Array(8)].map((_, i) => {
-                    const animationDurations = ['1s', '1.4s', '0.8s', '1.2s', '1.1s', '1.5s', '0.7s', '1.3s'];
-                    return (
-                      <motion.div
-                        key={i}
-                        animate={{ height: isMuted ? '4px' : ['4px', '22px', '4px'] }}
-                        transition={isMuted ? {} : { duration: parseFloat(animationDurations[i]), repeat: Infinity, ease: 'easeInOut' }}
-                        className="w-1 bg-cyan-400/80 rounded-full"
-                      />
-                    );
-                  })}
-                </div>
-                <div className="flex flex-col leading-none">
-                  <span className="text-[9px] tracking-[0.15em] font-sans text-white/30 uppercase font-light">Sentinel AI Voice</span>
-                  <span className="text-[10px] font-sans text-white/70 tracking-wider font-light mt-0.5">
-                    {isMuted ? 'Stream muted' : 'Transmitting vocal synth...'}
+              {/* Subsurface Waveform showing Sentinel is speaking or startup button */}
+              {!isBriefingStarted ? (
+                <div className="mt-8 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                  <button
+                    onClick={handleStartBriefing}
+                    className="px-6 py-3 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 rounded-2xl text-[10px] tracking-[0.2em] font-sans font-semibold uppercase transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(34,211,238,0.1)] hover:shadow-[0_0_25px_rgba(34,211,238,0.2)] active:scale-95 cursor-pointer relative z-20"
+                  >
+                    <Play size={14} className="text-cyan-400 fill-cyan-400/25" />
+                    <span>INITIALIZE VOICE STREAM</span>
+                  </button>
+                  <span className="text-[10px] font-sans text-white/40 tracking-wider leading-relaxed max-w-xs">
+                    Authorize local browser audio stream to commence system-wide core telemetry.
                   </span>
                 </div>
-              </div>
+              ) : (
+                <div className="mt-8 flex items-center gap-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-2xl max-w-md shadow-sm">
+                  <div className="flex gap-1 items-end h-6 w-12 overflow-hidden pb-1 flex-shrink-0">
+                    {[...Array(8)].map((_, i) => {
+                      const animationDurations = ['1s', '1.4s', '0.8s', '1.2s', '1.1s', '1.5s', '0.7s', '1.3s'];
+                      return (
+                        <motion.div
+                          key={i}
+                          animate={{ height: isMuted ? '4px' : ['4px', '22px', '4px'] }}
+                          transition={isMuted ? {} : { duration: parseFloat(animationDurations[i]), repeat: Infinity, ease: 'easeInOut' }}
+                          className="w-1 bg-cyan-400/80 rounded-full"
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-col leading-none">
+                    <span className="text-[9px] tracking-[0.15em] font-sans text-white/30 uppercase font-light">Sentinel AI Voice</span>
+                    <span className="text-[10px] font-sans text-white/70 tracking-wider font-light mt-0.5">
+                      {isMuted ? 'Stream muted' : 'Transmitting vocal synth...'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         </AnimatePresence>

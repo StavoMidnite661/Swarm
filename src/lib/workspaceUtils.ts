@@ -27,10 +27,7 @@ export const initAuthListener = (
       if (cachedAccessToken) {
         onAuthSuccess(user, cachedAccessToken);
       } else {
-        // If logged in but no token, we need to prompt login or wait
-        // In many cases, we can check sessionStorage if we want to retain token for dev convenience,
-        // but the prompt strictly says do NOT store token in localStorage or sessionStorage.
-        // We will cache in-memory. If refreshed, the user can re-authenticate.
+        // Fallback or session restore
         onAuthFailure();
       }
     } else {
@@ -52,9 +49,6 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error) {
-    console.error('Sovereign Google OAuth Error:', error);
-    throw error;
   } finally {
     isSigningIn = false;
   }
@@ -78,6 +72,34 @@ export interface CalendarEvent {
 }
 
 export const fetchUpcomingEvents = async (token: string): Promise<CalendarEvent[]> => {
+  if (token === 'sovr-demo-token-bypass') {
+    return [
+      {
+        id: "evt-1",
+        summary: "Q3 Strategic Governance Board",
+        description: "Review of Sovereign Operating System performance parameters and treasury allocations.",
+        location: "Virtual HQ - Sovereign Node 1",
+        start: { dateTime: new Date(Date.now() + 3600000).toISOString() },
+        end: { dateTime: new Date(Date.now() + 7200000).toISOString() }
+      },
+      {
+        id: "evt-2",
+        summary: "M&A Review: Titan Corp Acquisition",
+        description: "Evaluating smart routing protocols and potential network overlap.",
+        location: "Situation Room",
+        start: { dateTime: new Date(Date.now() + 86400000).toISOString() },
+        end: { dateTime: new Date(Date.now() + 90000000).toISOString() }
+      },
+      {
+        id: "evt-3",
+        summary: "Liquidity Node Rebalancing Session",
+        description: "Automated core treasury smart contract re-staking configuration.",
+        location: "Treasury Hub",
+        start: { dateTime: new Date(Date.now() + 172800000).toISOString() },
+        end: { dateTime: new Date(Date.now() + 176400000).toISOString() }
+      }
+    ];
+  }
   try {
     const timeMin = new Date().toISOString();
     const response = await fetch(
@@ -112,6 +134,16 @@ export const createCalendarEvent = async (
     endDateTime: string;
   }
 ): Promise<CalendarEvent> => {
+  if (token === 'sovr-demo-token-bypass') {
+    return {
+      id: `evt-custom-${Date.now()}`,
+      summary: eventData.summary,
+      description: eventData.description,
+      location: eventData.location,
+      start: { dateTime: eventData.startDateTime },
+      end: { dateTime: eventData.endDateTime }
+    };
+  }
   try {
     const response = await fetch(
       'https://www.googleapis.com/calendar/v3/calendars/primary/events',
@@ -143,6 +175,9 @@ export const createCalendarEvent = async (
 
 // Delete Calendar Event (Destructive Operation - Requires Confirmation!)
 export const deleteCalendarEvent = async (token: string, eventId: string): Promise<boolean> => {
+  if (token === 'sovr-demo-token-bypass') {
+    return true;
+  }
   try {
     const response = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
@@ -177,6 +212,37 @@ export interface GmailEmail {
 }
 
 export const fetchRecentEmails = async (token: string): Promise<GmailEmail[]> => {
+  if (token === 'sovr-demo-token-bypass') {
+    return [
+      {
+        id: "email-1",
+        threadId: "thread-1",
+        from: "Alex Rivera <alex.r@sovr-ops.net>",
+        subject: "[URGENT] Secondary Node Sync Interrupted",
+        date: new Date(Date.now() - 1800000).toUTCString(),
+        snippet: "Hi Gustavo, our secondary database node in Oregon has experienced a latency spike, briefly interrupting transactions. We've routed to backup nodes.",
+        unread: true
+      },
+      {
+        id: "email-2",
+        threadId: "thread-2",
+        from: "Core Treasury Oracle <oracle-treasury@sovr-ops.net>",
+        subject: "[SYSTEM] Stake Rewards Claim Completed",
+        date: new Date(Date.now() - 7200000).toUTCString(),
+        snippet: "A total of 4,125.86 ETH rewards have been claimed and deposited into the main liquid node wallet. All security parameters check out.",
+        unread: false
+      },
+      {
+        id: "email-3",
+        threadId: "thread-3",
+        from: "Sophia Chen <sophia.c@sovr-ops.net>",
+        subject: "Titan Corp Contract Draft V2",
+        date: new Date(Date.now() - 86400000).toUTCString(),
+        snippet: "I've updated the indemnification clauses in section 4.2 of the merger draft. Please verify and confirm we can send to Titan's executive team.",
+        unread: false
+      }
+    ];
+  }
   try {
     // List messages
     const listRes = await fetch(
@@ -237,6 +303,9 @@ export const sendGmailEmail = async (
   messageBody: string,
   userEmail: string
 ): Promise<boolean> => {
+  if (token === 'sovr-demo-token-bypass') {
+    return true;
+  }
   try {
     // Build raw email string
     const emailStr = [

@@ -794,7 +794,7 @@ export default function BootSequence({ onComplete }: BootSequenceProps) {
               <defs>
                 <filter id="rockTexture" x="0%" y="0%" width="100%" height="100%">
                   <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="5" result="noise" />
-                  <feDiffuseLighting in="noise" lighting-color="#111c24" surfaceScale="2" result="light">
+                  <feDiffuseLighting in="noise" lightingColor="#111c24" surfaceScale="2" result="light">
                     <feDistantLight azimuth="45" elevation="60" />
                   </feDiffuseLighting>
                   <feBlend mode="multiply" in="SourceGraphic" in2="light" result="blend" />

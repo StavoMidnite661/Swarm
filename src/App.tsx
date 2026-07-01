@@ -26,7 +26,10 @@ import WelcomeModal from './components/WelcomeModal';
 import SettingsModal from './components/SettingsModal';
 import ExecutiveBriefing from './components/ExecutiveBriefing';
 import BootSequence from './components/BootSequence';
+import StartButtonScreen from './components/StartButtonScreen';
 import { useSOVRKernel } from './kernel/useSOVRKernel';
+import { ConnectionManager, ConnectionState } from './kernel/ConnectionManager';
+import { AudioBootController } from './kernel/AudioBootController';
 
 interface ChatMessage {
   id: string;
@@ -74,6 +77,8 @@ interface ModelConfig {
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const connectionManagerRef = useRef<ConnectionManager | null>(null);
+  const audioBootControllerRef = useRef<AudioBootController | null>(null);
 
   const {
     state: sovrState,
@@ -97,10 +102,17 @@ export default function App() {
   const [showWelcome, setShowWelcome] = useState(true);
   const [bootStarted, setBootStarted] = useState(false);
   const [bootCompleted, setBootCompleted] = useState(false);
+  const [showStartScreen, setShowStartScreen] = useState(false);
+  const [briefingReady, setBriefingReady] = useState(false);
   const [briefingCompleted, setBriefingCompleted] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    connectionManagerRef.current = new ConnectionManager(
+      { url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/live` },
+      (state) => console.log(`[SOVR] Connection State: ${state}`)
+    );
+    audioBootControllerRef.current = new AudioBootController();
     return () => clearInterval(timer);
   }, []);
 
@@ -177,6 +189,7 @@ export default function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<'controls' | 'chat' | 'memory' | 'minimap'>('chat');
   const [isAgentDormant, setIsAgentDormant] = useState(false);
+  const [dashboardVisible, setDashboardVisible] = useState(false);
   
   const [modelConfig, setModelConfig] = useState<ModelConfig>(() => {
     try {
@@ -273,6 +286,7 @@ export default function App() {
   const [isAgentConnecting, setIsAgentConnecting] = useState(false);
   const [isAgentConnected, setIsAgentConnected] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const fetchMemories = async (retryCount = 0) => {
     try {
@@ -363,19 +377,19 @@ export default function App() {
   useEffect(() => {
     (window as any)._isDormant = isAgentDormant;
     
-    // Falling asleep edge
-    if (isAgentDormant && !prevDormantRef.current) {
-      if (isAgentConnected || isAgentConnecting) {
+    if (isAgentDormant) {
+      if (isAgentConnected || isAgentConnecting || wsRef.current || ws) {
         wasConnectedBeforeSleepRef.current = true;
+        if (wsRef.current) {
+          wsRef.current.close();
+        }
         if (ws) {
           ws.close();
         }
       }
-    }
-    
-    // Waking up or waiting for close to finish before waking up
-    if (!isAgentDormant && wasConnectedBeforeSleepRef.current) {
-      if (!isAgentConnected && !isAgentConnecting) {
+    } else {
+      // Waking up
+      if (wasConnectedBeforeSleepRef.current && !isAgentConnected && !isAgentConnecting && !wsRef.current) {
         wasConnectedBeforeSleepRef.current = false;
         connectAgent();
       }
@@ -410,7 +424,7 @@ export default function App() {
     } else {
       // Entry animation after briefing completed
       let start = performance.now();
-      const duration = 2800; // 2.8s transition
+      const duration = 5000; // 5.0s majestic transition spin
       const startYaw = yaw;
       const targetYaw = startYaw + (Math.PI * 2);
       const startOffsetX = 0.0;
@@ -436,6 +450,9 @@ export default function App() {
           requestAnimationFrame(animateEntry);
         } else {
           setIsAgentDormant(true);
+          setTimeout(() => {
+            setDashboardVisible(true);
+          }, 1000); // 1s wait after spin completes before dashboard fades in
         }
       };
       
@@ -454,11 +471,7 @@ export default function App() {
     
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     audioContextRef.current = ctx;
-
-    // Resume context (browser security)
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
+    if (ctx.state === 'suspended') { ctx.resume(); }
 
     // 1. Base Synth Drone
     const osc = ctx.createOscillator();
@@ -493,7 +506,7 @@ export default function App() {
     filterRef.current = noiseFilter;
 
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.05, ctx.currentTime); // Base whisper
+    noiseGain.gain.setValueAtTime(0.05, ctx.currentTime);
     noiseGainRef.current = noiseGain;
 
     noiseSource.connect(noiseFilter);
@@ -501,7 +514,7 @@ export default function App() {
     noiseGain.connect(ctx.destination);
     noiseSource.start();
 
-    // 3. Environment Texture (Landscape specific)
+    // 3. Environment Texture
     const envSource = ctx.createBufferSource();
     envSource.buffer = noiseBuffer;
     envSource.loop = true;
@@ -520,10 +533,22 @@ export default function App() {
     envGain.connect(ctx.destination);
     envSource.start();
 
+    audioBootControllerRef.current?.forceSpeakOnReady(
+      "System online. Executive briefing initiated.", 
+      () => console.warn("[SOVR] Audio briefing failed, falling back to text mode.")
+    );
+
     setAudioStarted(true);
   };
 
   const connectAgent = async () => {
+    // Lifecycle management through ConnectionManager
+    connectionManagerRef.current?.connect();
+    
+    // NOTE: For now, I will keep the existing logic for microphone/websocket message handling
+    // because moving it is a larger structural change than this checkpoint requires.
+    // I will restore the logic.
+    if (isAgentConnecting || isAgentConnected || wsRef.current) return;
     setIsAgentDormant(false);
     setIsAgentConnecting(true);
     try {
@@ -540,11 +565,13 @@ export default function App() {
       }).toString();
 
       const newWs = new WebSocket(`${protocol}//${location.host}/live?${queryParams}`);
+      wsRef.current = newWs;
       const inputAudioCtx = new AudioContext({ sampleRate: 16000 });
       const outputAudioCtx = new AudioContext({ sampleRate: 24000 });
       const analyser = outputAudioCtx.createAnalyser();
       analyser.fftSize = 256;
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let stream: MediaStream | null = null;
       
       let pollRef: number;
       const pollAudio = () => {
@@ -560,29 +587,6 @@ export default function App() {
         pollRef = requestAnimationFrame(pollAudio);
       };
       pollAudio();
-
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const source = inputAudioCtx.createMediaStreamSource(stream);
-        const processor = inputAudioCtx.createScriptProcessor(4096, 1, 1);
-        source.connect(processor);
-        processor.connect(inputAudioCtx.destination);
-
-        processor.onaudioprocess = (e) => {
-          if (newWs.readyState === WebSocket.OPEN) {
-            const base64 = pcmToBase64(e.inputBuffer.getChannelData(0));
-            newWs.send(JSON.stringify({ audio: base64 }));
-          }
-        };
-      } catch (micErr) {
-        console.warn("Microphone access not available or denied. Using text-only input mode.", micErr);
-        setMessages(prev => [...prev, {
-          id: Math.random().toString(),
-          sender: 'agent',
-          text: `System: Microphone access denied or unavailable. Voice input is disabled. You can still use text chat.`
-        }]);
-      }
 
       newWs.onmessage = (event) => {
         const msg = JSON.parse(event.data);
@@ -639,6 +643,9 @@ export default function App() {
       newWs.onclose = () => {
         setIsAgentConnected(false);
         setWs(null);
+        if (wsRef.current === newWs) {
+          wsRef.current = null;
+        }
         if (stream) {
           stream.getTracks().forEach(track => track.stop());
         }
@@ -651,6 +658,35 @@ export default function App() {
         cancelAnimationFrame(pollRef);
         (window as any)._agentAudio = 0;
       };
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        // If the websocket was closed while waiting for user permission, abort
+        if (newWs.readyState === WebSocket.CLOSED || newWs.readyState === WebSocket.CLOSING) {
+           stream.getTracks().forEach(track => track.stop());
+           return;
+        }
+        
+        const source = inputAudioCtx.createMediaStreamSource(stream);
+        const processor = inputAudioCtx.createScriptProcessor(4096, 1, 1);
+        source.connect(processor);
+        processor.connect(inputAudioCtx.destination);
+
+        processor.onaudioprocess = (e) => {
+          if (newWs.readyState === WebSocket.OPEN) {
+            const base64 = pcmToBase64(e.inputBuffer.getChannelData(0));
+            newWs.send(JSON.stringify({ audio: base64 }));
+          }
+        };
+      } catch (micErr) {
+        console.warn("Microphone access not available or denied. Using text-only input mode.", micErr);
+        setMessages(prev => [...prev, {
+          id: Math.random().toString(),
+          sender: 'agent',
+          text: `System: Microphone access denied or unavailable. Voice input is disabled. You can still use text chat.`
+        }]);
+      }
 
     } catch (err) {
       console.error("Failed to connect agent", err);
@@ -665,6 +701,9 @@ export default function App() {
 
   const disconnectAgent = () => {
     wasConnectedBeforeSleepRef.current = false;
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
     if (ws) {
       ws.close();
     }
@@ -680,7 +719,9 @@ export default function App() {
       ws.send(JSON.stringify({ text: textToSend }));
     } else {
       pendingMsgRef.current = textToSend;
-      connectAgent();
+      if (!isAgentConnecting) {
+        connectAgent();
+      }
     }
   }
 
@@ -1320,6 +1361,19 @@ export default function App() {
             onComplete={() => {
               setBootCompleted(true);
               startAudio();
+              setShowStartScreen(true);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Start Button Screen Overlay */}
+      <AnimatePresence>
+        {showStartScreen && !briefingReady && (
+          <StartButtonScreen
+            onStart={() => {
+              setBriefingReady(true);
+              setShowStartScreen(false);
             }}
           />
         )}
@@ -1327,7 +1381,7 @@ export default function App() {
 
       {/* Cinematic Executive Briefing Overlay */}
       <AnimatePresence>
-        {audioStarted && bootCompleted && !briefingCompleted && (
+        {audioStarted && bootCompleted && briefingReady && !briefingCompleted && (
           <ExecutiveBriefing 
             onComplete={() => setBriefingCompleted(true)} 
             setYaw={setYaw} 
@@ -1336,8 +1390,13 @@ export default function App() {
       </AnimatePresence>
 
       {/* Top Navigation Bar */}
-      {audioStarted && briefingCompleted && (
-        <div className="absolute top-0 inset-x-0 h-16 z-40 bg-black/20 backdrop-blur-[40px] border-b border-white/[0.04] flex items-center justify-between px-6 shadow-[0_4px_32px_rgba(0,0,0,0.5)] animate-fadeIn">
+      {dashboardVisible && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+          className="absolute top-0 inset-x-0 h-16 z-40 bg-black/20 backdrop-blur-[40px] border-b border-white/[0.04] flex items-center justify-between px-6 shadow-[0_4px_32px_rgba(0,0,0,0.5)]"
+        >
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="relative flex h-1.5 w-1.5">
@@ -1397,6 +1456,7 @@ export default function App() {
                 setBootCompleted(false);
                 setAudioStarted(false);
                 setBriefingCompleted(false);
+                setDashboardVisible(false);
                 // Also disconnect agents if connected
                 if (isAgentConnected) {
                   disconnectAgent();
@@ -1408,90 +1468,100 @@ export default function App() {
               <span>Decouple Deck</span>
             </button>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Main Command Deck Grid */}
       <AnimatePresence>
-        {audioStarted && briefingCompleted && !isCollapsed && (
-          <CommandCenter
-            speed={speed}
-            setSpeed={setSpeed}
-            zoom={zoom}
-            setZoom={setZoom}
-            singularity={singularity}
-            setSingularity={setSingularity}
-            resonance={resonance}
-            setResonance={setResonance}
-            density={density}
-            setDensity={setDensity}
-            proximity={proximity}
-            setProximity={setProximity}
-            wind={wind}
-            setWind={setWind}
-            colorMode={colorMode}
-            setColorMode={setColorMode}
-            pulseFreq={pulseFreq}
-            setPulseFreq={setPulseFreq}
-            
-            activeRoom={activeRoom}
-            setActiveRoom={handleSetActiveRoom}
-            timeQuarter={timeQuarter}
-            setTimeQuarter={handleSetTimeQuarter}
-            currentTime={currentTime}
-            setShowSettings={setShowSettings}
+        {dashboardVisible && !isCollapsed && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 1.5, ease: "easeOut" }}
+            className="absolute inset-0 z-30"
+          >
+            <CommandCenter
+              speed={speed}
+              setSpeed={setSpeed}
+              zoom={zoom}
+              setZoom={setZoom}
+              singularity={singularity}
+              setSingularity={setSingularity}
+              resonance={resonance}
+              setResonance={setResonance}
+              density={density}
+              setDensity={setDensity}
+              proximity={proximity}
+              setProximity={setProximity}
+              wind={wind}
+              setWind={setWind}
+              colorMode={colorMode}
+              setColorMode={setColorMode}
+              pulseFreq={pulseFreq}
+              setPulseFreq={setPulseFreq}
+              
+              activeRoom={activeRoom}
+              setActiveRoom={handleSetActiveRoom}
+              timeQuarter={timeQuarter}
+              setTimeQuarter={handleSetTimeQuarter}
+              currentTime={currentTime}
+              setShowSettings={setShowSettings}
 
-            messages={messages}
-            chatInput={chatInput}
-            setChatInput={setChatInput}
-            handleSendMessage={handleSendMessage}
-            isAgentConnected={isAgentConnected}
-            isAgentConnecting={isAgentConnecting}
-            connectAgent={connectAgent}
-            disconnectAgent={disconnectAgent}
-            isAgentDormant={isAgentDormant}
-            setIsAgentDormant={setIsAgentDormant}
+              messages={messages}
+              chatInput={chatInput}
+              setChatInput={setChatInput}
+              handleSendMessage={handleSendMessage}
+              isAgentConnected={isAgentConnected}
+              isAgentConnecting={isAgentConnecting}
+              connectAgent={connectAgent}
+              disconnectAgent={disconnectAgent}
+              isAgentDormant={isAgentDormant}
+              setIsAgentDormant={setIsAgentDormant}
 
-            modelConfig={modelConfig}
-            setModelConfig={setModelConfig}
+              modelConfig={modelConfig}
+              setModelConfig={setModelConfig}
 
-            // SOVR Systems Operating System Kernel bindings
-            sovrState={sovrState}
-            operationalAnswers={operationalAnswers}
-            createMission={createMission}
-            toggleTaskDone={toggleTaskDone}
-            addMemoryFact={addMemoryFact}
-            deleteMemoryFact={deleteMemoryFact}
-            toggleDamping={toggleDamping}
-            resolveApproval={resolveApproval}
-            reallocateCompute={reallocateCompute}
-            
-            yaw={yaw}
-            pitch={pitch}
-          />
+              // SOVR Systems Operating System Kernel bindings
+              sovrState={sovrState}
+              operationalAnswers={operationalAnswers}
+              createMission={createMission}
+              toggleTaskDone={toggleTaskDone}
+              addMemoryFact={addMemoryFact}
+              deleteMemoryFact={deleteMemoryFact}
+              toggleDamping={toggleDamping}
+              resolveApproval={resolveApproval}
+              reallocateCompute={reallocateCompute}
+              
+              yaw={yaw}
+              pitch={pitch}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
 
-
-
       {/* Floater when system panel collapsed */}
-      {audioStarted && briefingCompleted && isCollapsed && (
-        <div className="absolute bottom-6 right-6 z-40">
-          <motion.button 
-            layoutId="system-panel-trigger"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            onClick={() => setIsCollapsed(false)}
-            className="px-5 py-3 bg-black/60 backdrop-blur-3xl hover:bg-black/80 border border-white/15 rounded-xl font-mono text-[10px] text-white/80 uppercase tracking-widest flex items-center gap-2.5 shadow-2xl transition-all"
-          >
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
-            </span>
-            <span>Restore Command Deck</span>
-          </motion.button>
-        </div>
-      )}
+      <AnimatePresence>
+        {dashboardVisible && isCollapsed && (
+          <div className="absolute bottom-6 right-6 z-40">
+            <motion.button 
+              layoutId="system-panel-trigger"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 0.8 }}
+              onClick={() => setIsCollapsed(false)}
+              className="px-5 py-3 bg-black/60 backdrop-blur-3xl hover:bg-black/80 border border-white/15 rounded-xl font-mono text-[10px] text-white/80 uppercase tracking-widest flex items-center gap-2.5 shadow-2xl transition-all"
+            >
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
+              </span>
+              <span>Restore Command Deck</span>
+            </motion.button>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

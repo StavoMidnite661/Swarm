@@ -214,7 +214,7 @@ export default function CentralPanel(props: PanelProps) {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                 
                 {/* Confidence Meter Widget */}
-                <div className="md:col-span-1 p-4 border border-white/[0.08] bg-white/[0.03] backdrop-blur-[32px] rounded-[16px] flex flex-col justify-between relative overflow-hidden shadow-[inset_0_1px_2px_rgba(255,255,255,0.15),0_8px_32px_rgba(0,0,0,0.5)]" id="confidence-meter-card">
+                <div className="md:col-span-1 p-4 border border-white/[0.08] bg-white/[0.03] backdrop-blur-[32px] rounded-[16px] flex flex-col justify-between relative overflow-hidden shadow-[inset_0_1px_2px_rgba(255,255,255,0.15),0_8px_32px_rgba(0,0,0,0.5)] min-h-[220px]" id="confidence-meter-card">
                   <div className="absolute inset-x-0 h-[1px] bg-white/[0.08] top-0" />
                   <div className="absolute -right-6 -bottom-6 opacity-[0.03] pointer-events-none">
                     <ShieldCheck className="w-24 h-24 text-white" />
@@ -250,7 +250,7 @@ export default function CentralPanel(props: PanelProps) {
                 </div>
 
                 {/* Cost Intelligence Ledger */}
-                <div className="md:col-span-2 p-4 border border-white/[0.08] bg-white/[0.03] backdrop-blur-[32px] rounded-[16px] flex flex-col justify-between relative overflow-hidden shadow-[inset_0_1px_2px_rgba(255,255,255,0.15),0_8px_32px_rgba(0,0,0,0.5)]" id="cost-ledger-card">
+                <div className="md:col-span-2 p-4 border border-white/[0.08] bg-white/[0.03] backdrop-blur-[32px] rounded-[16px] flex flex-col justify-between relative overflow-hidden shadow-[inset_0_1px_2px_rgba(255,255,255,0.15),0_8px_32px_rgba(0,0,0,0.5)] min-h-[220px]" id="cost-ledger-card">
                   <div className="absolute inset-x-0 h-[1px] bg-white/[0.08] top-0" />
                   <div className="absolute -right-6 -bottom-6 opacity-[0.03] pointer-events-none">
                     <Coins className="w-24 h-24 text-white" />
